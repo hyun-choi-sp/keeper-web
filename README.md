@@ -1,6 +1,6 @@
 # Keeper Connection Manager (Web)
 
-Express + Next.js web UI for provisioning Keeper connections and user access from DynamoDB.
+Single Next.js app (UI + API routes) for provisioning Keeper connections and user access from DynamoDB.
 
 ## Requirements
 - Node.js 18+
@@ -17,20 +17,11 @@ ENVIRONMENT=production
 
 2) Install dependencies:
 ```
-cd server
-npm install
-
-cd ../web
+cd web
 npm install
 ```
 
 ## Run locally
-```
-cd server
-npm run dev
-```
-
-In another terminal:
 ```
 cd web
 npm run dev
@@ -40,5 +31,4 @@ Open `http://localhost:3000`.
 
 ## Notes
 - Keeper login credentials are entered in the UI and stored in memory for the session.
-- `WEB_ORIGIN` (server) defaults to `http://localhost:3000`.
-- `NEXT_PUBLIC_API_BASE` (web) defaults to `http://localhost:4000`.
+- `NEXT_PUBLIC_API_BASE` is optional (defaults to same origin).

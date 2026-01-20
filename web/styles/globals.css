@@ -56,6 +56,49 @@ a {
   margin: 0 auto;
 }
 
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+}
+
+.nav-brand {
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.nav-link.active {
+  color: var(--ink-strong);
+  background: var(--muted);
+}
+
 .hero {
   display: grid;
   gap: 12px;
@@ -202,6 +245,7 @@ button.secondary {
 .list-item small {
   font-family: "IBM Plex Mono", monospace;
   color: var(--ink-soft);
+  white-space: pre-line;
 }
 
 .pill {
@@ -229,6 +273,124 @@ button.secondary {
   color: #b0202a;
 }
 
+.har-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 2fr;
+  gap: 18px;
+}
+
+.har-list {
+  display: grid;
+  gap: 10px;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.har-item {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.har-item.active {
+  border-color: var(--accent);
+  box-shadow: 0 10px 20px rgba(255, 107, 74, 0.15);
+}
+
+.har-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.har-url {
+  font-size: 13px;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.har-detail {
+  border: 1px dashed var(--panel-border);
+  border-radius: 16px;
+  padding: 16px;
+  background: #fcfbf8;
+}
+
+.waterfall {
+  display: grid;
+  gap: 12px;
+}
+
+.waterfall-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.waterfall-list {
+  display: grid;
+  gap: 10px;
+}
+
+.waterfall-row {
+  display: grid;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.waterfall-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.waterfall-url {
+  color: var(--ink-soft);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.waterfall-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: #f1f3f6;
+  overflow: hidden;
+}
+
+.waterfall-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffd166 0%, #ff6b4a 100%);
+  min-width: 2px;
+}
+
+.waterfall-bar-fill.ok {
+  background: linear-gradient(90deg, #8fd3c5 0%, #2a9d8f 100%);
+}
+
+.waterfall-bar-fill.warn {
+  background: linear-gradient(90deg, #ffd166 0%, #f4a261 100%);
+}
+
+.waterfall-bar-fill.fail {
+  background: linear-gradient(90deg, #ffb3b3 0%, #e63946 100%);
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -247,5 +409,9 @@ button.secondary {
 
   .panel {
     padding: 20px;
+  }
+
+  .har-grid {
+    grid-template-columns: 1fr;
   }
 }

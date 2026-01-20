@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import Nav from "../components/Nav";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
 export default function Home() {
   const [keeperApiUrl, setKeeperApiUrl] = useState("");
@@ -9,18 +10,20 @@ export default function Home() {
   const [targetName, setTargetName] = useState("");
   const [environment, setEnvironment] = useState("production");
   const [loginState, setLoginState] = useState("idle");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [previewState, setPreviewState] = useState("idle");
   const [provisionState, setProvisionState] = useState("idle");
   const [userState, setUserState] = useState("idle");
   const [preview, setPreview] = useState(null);
   const [overrides, setOverrides] = useState({});
   const [groupIdentifier, setGroupIdentifier] = useState("");
+  const [awsEnv, setAwsEnv] = useState("");
   const [userEmails, setUserEmails] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config`)
+    fetch(`${API_BASE}/api/config`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         setKeeperApiUrl(data.keeperApiUrl || "");
@@ -60,6 +63,7 @@ export default function Home() {
       const response = await fetch(`${API_BASE}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           keeperUsername,
           keeperPassword,
@@ -69,11 +73,33 @@ export default function Home() {
 
       if (!response.ok) {
         const payload = await response.json();
-        throw new Error(payload.error || "Login failed.");
+        const details = payload.details ? ` (${payload.details})` : "";
+        throw new Error((payload.error || "Login failed.") + details);
       }
 
       setLoginState("success");
+      setIsAuthenticated(true);
       setMessage("Authenticated to Keeper.");
+    } catch (err) {
+      setLoginState("error");
+      setIsAuthenticated(false);
+      setError(err.message);
+    }
+  }
+
+  async function handleLogout() {
+    setLoginState("loading");
+    setError("");
+    setMessage("");
+
+    try {
+      await fetch(`${API_BASE}/api/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+      setLoginState("idle");
+      setIsAuthenticated(false);
+      setMessage("Logged out.");
     } catch (err) {
       setLoginState("error");
       setError(err.message);
@@ -90,9 +116,11 @@ export default function Home() {
       const response = await fetch(`${API_BASE}/api/tenant/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           targetName,
           environment,
+          awsEnv,
         }),
       });
 
@@ -121,10 +149,12 @@ export default function Home() {
       const response = await fetch(`${API_BASE}/api/tenant/provision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           targetName,
           environment,
           overrides: Object.values(overrides),
+          awsEnv,
         }),
       });
 
@@ -160,6 +190,7 @@ export default function Home() {
       const response = await fetch(`${API_BASE}/api/users/add`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           groupName: targetName,
           users,
@@ -184,6 +215,7 @@ export default function Home() {
 
   return (
     <main>
+      <Nav />
       <div className="container">
         <div className="hero">
           <h1>Keeper Connection Manager</h1>
@@ -191,7 +223,7 @@ export default function Home() {
             Provision tenant connections and user access from DynamoDB into Keeper.
           </p>
           <div className="tag">
-            Local mode <span aria-hidden="true">•</span> Express + Next
+            Local mode <span aria-hidden="true">•</span> Next.js (UI + API)
           </div>
         </div>
 
@@ -207,6 +239,7 @@ export default function Home() {
                     value={keeperApiUrl}
                     onChange={(event) => setKeeperApiUrl(event.target.value)}
                     placeholder="https://poc-access.sailpoint.com"
+                    disabled={isAuthenticated}
                   />
                 </label>
                 <label>
@@ -215,6 +248,7 @@ export default function Home() {
                     value={keeperUsername}
                     onChange={(event) => setKeeperUsername(event.target.value)}
                     placeholder="hyun.choi"
+                    disabled={isAuthenticated}
                   />
                 </label>
                 <label>
@@ -224,13 +258,30 @@ export default function Home() {
                     value={keeperPassword}
                     onChange={(event) => setKeeperPassword(event.target.value)}
                     placeholder="••••••••"
+                    disabled={isAuthenticated}
                   />
                 </label>
               </div>
+              <div className="status">
+                {isAuthenticated ? (
+                  <>
+                    <span className="pill ok">Logged In</span>{" "}
+                    <strong>{keeperUsername}</strong>
+                  </>
+                ) : (
+                  <span className="pill warn">Not Logged In</span>
+                )}
+              </div>
               <div className="button-row">
-                <button className="primary" type="submit">
-                  {loginState === "loading" ? "Logging in..." : "Login"}
-                </button>
+                {isAuthenticated ? (
+                  <button className="secondary" type="button" onClick={handleLogout}>
+                    {loginState === "loading" ? "Logging out..." : "Logout"}
+                  </button>
+                ) : (
+                  <button className="primary" type="submit">
+                    {loginState === "loading" ? "Logging in..." : "Login"}
+                  </button>
+                )}
                 <button
                   className="secondary"
                   type="button"
@@ -238,6 +289,7 @@ export default function Home() {
                     setKeeperPassword("");
                     setLoginState("idle");
                   }}
+                  disabled={isAuthenticated}
                 >
                   Clear Password
                 </button>
@@ -269,6 +321,14 @@ export default function Home() {
                   </select>
                 </label>
               </div>
+              <label>
+                AWS Session Env (paste export block here)
+                <textarea
+                  value={awsEnv}
+                  onChange={(event) => setAwsEnv(event.target.value)}
+                  placeholder={'export AWS_ACCESS_KEY_ID="..."\nexport AWS_SECRET_ACCESS_KEY="..."\nexport AWS_SESSION_TOKEN="..."'}
+                />
+              </label>
               <div className="button-row">
                 <button className="primary" type="submit">
                   {previewState === "loading" ? "Loading..." : "Load Tenant"}
@@ -285,8 +345,8 @@ export default function Home() {
           </section>
 
           <section className="panel">
-            <h2>3. Fill Missing Credentials</h2>
-            <p>Only required when Secrets Manager lacks protocol or password.</p>
+            <h2>3. Credentials & Provision</h2>
+            <p>Fill missing credentials and create Keeper connections in one step.</p>
             {!missingInstances.length ? (
               <div className="status">No missing credentials detected.</div>
             ) : (
@@ -332,7 +392,7 @@ export default function Home() {
                           </label>
                         </>
                       )}
-                      {instance.needsPassword && (
+                      {(instance.needsConfig || instance.needsPassword) && (
                         <label>
                           Password
                           <input
@@ -354,11 +414,6 @@ export default function Home() {
                 ))}
               </div>
             )}
-          </section>
-
-          <section className="panel">
-            <h2>4. Provision Connections</h2>
-            <p>Create connection groups and connections in Keeper.</p>
             <div className="button-row">
               <button className="primary" type="button" onClick={handleProvision}>
                 {provisionState === "loading" ? "Provisioning..." : "Create Connections"}
@@ -383,7 +438,7 @@ export default function Home() {
           </section>
 
           <section className="panel">
-            <h2>5. Add Users</h2>
+            <h2>4. Add Users</h2>
             <p>Grant group and connection permissions to users.</p>
             <div className="fields">
               <label>
