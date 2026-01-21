@@ -1,6 +1,6 @@
 # Keeper Connection Manager (Web)
 
-Single Next.js app (UI + API routes) for provisioning Keeper connections and user access from DynamoDB.
+Single Next.js app (UI + API routes) for provisioning Keeper connections and user access from DynamoDB, plus a HAR Inspector.
 
 ## Requirements
 - Node.js 18+
@@ -29,6 +29,13 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Features
+- Keeper Manager: tenant preview, connection create/update, user access management
+- Existing connection checks and optional delete (per connection or whole group)
+- AWS session env paste (for temporary credentials)
+- HAR Inspector: upload HAR, flow summary, filters, waterfall, issue hints, DQL suggestions
+
 ## Notes
 - Keeper login credentials are entered in the UI and stored in memory for the session.
 - `NEXT_PUBLIC_API_BASE` is optional (defaults to same origin).
+- For AWS access, you can paste the `export AWS_*` block into the Step 2 field instead of exporting in the shell.
