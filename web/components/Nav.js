@@ -12,7 +12,18 @@ export default function Nav() {
   return (
     <nav className="nav">
       <div className="container nav-inner">
-        <span className="nav-brand">Keeper Web</span>
+        <div className="nav-brand">
+          <svg
+            className="nav-logo"
+            viewBox="0 0 64 64"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <polygon points="8,48 32,8 56,48" />
+            <polygon points="8,48 32,56 56,48" />
+          </svg>
+          <span className="nav-brand-text">SailPoint</span>
+        </div>
         <div className="nav-links">
           {NAV_ITEMS.map((item) => (
             <Link

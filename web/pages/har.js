@@ -129,12 +129,93 @@ function analyzeIssues(entries) {
   return issues.slice(0, 40);
 }
 
+function buildDqlSuggestions(entries) {
+  const suggestions = [];
+  const seen = new Set();
+
+  const addSuggestion = (title, query) => {
+    if (!query || seen.has(query)) return;
+    suggestions.push({ title, query });
+    seen.add(query);
+  };
+
+  const orgFromHost = (host) => {
+    const match = host.match(/(company\d+-poc)/i);
+    return match ? match[1] : null;
+  };
+
+  const hostMap = new Map();
+  const errorHosts = new Map();
+  const slowHosts = new Map();
+  const paths = new Map();
+
+  entries.forEach((entry) => {
+    const url = safeGet(entry, ["request", "url"], "");
+    const status = safeGet(entry, ["response", "status"], 0);
+    const time = entry.time || 0;
+
+    try {
+      const parsed = new URL(url);
+      const host = parsed.host;
+      const path = parsed.pathname || "/";
+
+      hostMap.set(host, (hostMap.get(host) || 0) + 1);
+      if (status >= 500) {
+        errorHosts.set(host, (errorHosts.get(host) || 0) + 1);
+      }
+      if (time >= 2000) {
+        slowHosts.set(host, (slowHosts.get(host) || 0) + 1);
+      }
+      if (path.length > 1) {
+        paths.set(path, (paths.get(path) || 0) + 1);
+      }
+    } catch (err) {
+      // ignore invalid urls
+    }
+  });
+
+  const topHost = [...hostMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topErrorHost = [...errorHosts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topSlowHost = [...slowHosts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topPath = [...paths.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const orgHint = topHost ? orgFromHost(topHost) : null;
+
+  if (orgHint) {
+    addSuggestion("Org scoped, error focus", `org: "${orgHint}" AND level: error`);
+    addSuggestion("Org scoped, warnings", `org: "${orgHint}" AND level: warn`);
+  }
+
+  if (topHost) {
+    addSuggestion("Host focus", `host: "${topHost}"`);
+  }
+
+  if (topErrorHost) {
+    addSuggestion("Host errors", `host: "${topErrorHost}" AND level: error`);
+  }
+
+  if (topSlowHost) {
+    addSuggestion("Latency investigation", `host: "${topSlowHost}" AND message: "timeout"`);
+  }
+
+  if (topPath) {
+    addSuggestion("Path specific", `request_path: "${topPath}"`);
+  }
+
+  addSuggestion("Exceptions only", "exception:* OR stack:*");
+  addSuggestion("5xx responses", "status:[500 TO 599]");
+  addSuggestion("Auth failures", 'message: ("unauthorized" OR "forbidden" OR "auth failed")');
+
+  return suggestions.slice(0, 8);
+}
+
 export default function HarPage() {
   const [harName, setHarName] = useState("");
   const [harData, setHarData] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all");
   const [domainFilter, setDomainFilter] = useState("all");
+  const [copiedQuery, setCopiedQuery] = useState("");
   const [error, setError] = useState("");
 
   const entries = useMemo(() => {
@@ -181,6 +262,7 @@ export default function HarPage() {
   const summary = useMemo(() => summarizeEntries(entries), [entries]);
   const issues = useMemo(() => analyzeIssues(filteredEntries), [filteredEntries]);
   const selectedEntry = filteredEntries[selectedIndex];
+  const dqlSuggestions = useMemo(() => buildDqlSuggestions(filteredEntries), [filteredEntries]);
 
   const criticalPath = useMemo(() => {
     return [...filteredEntries]
@@ -246,6 +328,14 @@ export default function HarPage() {
       setError("Failed to read the file.");
     };
     reader.readAsText(file);
+  }
+
+  function handleCopy(query) {
+    if (!query) return;
+    navigator.clipboard.writeText(query).then(() => {
+      setCopiedQuery(query);
+      window.setTimeout(() => setCopiedQuery(""), 1600);
+    });
   }
 
   return (
@@ -433,6 +523,44 @@ export default function HarPage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <h2>OpenSearch DQL Suggestions</h2>
+          <p>Auto-generated queries to dig into server-side logs.</p>
+          {!dqlSuggestions.length ? (
+            <div className="status">Upload a HAR file to generate suggestions.</div>
+          ) : (
+            <div className="list">
+              {dqlSuggestions.map((suggestion) => (
+                <div className="list-item" key={suggestion.query}>
+                  <h3>{suggestion.title}</h3>
+                  <div className="dql-row">
+                    <code>{suggestion.query}</code>
+                    <button
+                      type="button"
+                      className="copy-button"
+                      onClick={() => handleCopy(suggestion.query)}
+                      aria-label="Copy DQL"
+                    >
+                      {copiedQuery === suggestion.query ? (
+                        <span className="copy-text">Copied</span>
+                      ) : (
+                        <svg
+                          className="copy-icon"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path d="M9 9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-6a3 3 0 0 1-3-3V9z" />
+                          <path d="M6 15H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v1" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>

@@ -73,13 +73,29 @@ async function getInstancePasswords(credentials) {
   return JSON.parse(secretResponse.SecretString);
 }
 
-function buildInstancesPlan(instanceStack, instancePasswords) {
+function extractUsername(parameters) {
+  if (!parameters) return null;
+  return (
+    parameters.username ||
+    parameters.user ||
+    parameters["auth-username"] ||
+    parameters["auth_user"] ||
+    null
+  );
+}
+
+function buildInstancesPlan(instanceStack, instancePasswords, targetName, existingByName) {
   const entries = Object.entries(instanceStack || {});
 
   return entries.map(([stackKey, instance]) => {
     const config = instancePasswords[instance.imageId] || null;
     const needsConfig = !config;
     const needsPassword = Boolean(config && config.username && !config.password);
+    const connectionName = targetName
+      ? `${targetName} - ${instance.displayName}`
+      : null;
+    const existing = connectionName ? existingByName?.get(connectionName) : null;
+    const exists = Boolean(existing);
 
     return {
       stackKey,
@@ -93,6 +109,12 @@ function buildInstancesPlan(instanceStack, instancePasswords) {
       username: config ? config.username : null,
       needsConfig,
       needsPassword,
+      connectionName,
+      exists,
+      existingProtocol: existing?.protocol || null,
+      existingUsername: extractUsername(existing?.parameters),
+      suggestedUsername: existing?.suggestedUsername || null,
+      connectionId: existing?.identifier || null,
     };
   });
 }
@@ -303,6 +325,7 @@ async function queryTenant(targetName, environment, credentials) {
 }
 
 module.exports = {
+  extractUsername,
   parseAwsEnv,
   loadAuthFromRequest,
   ensureAuthToken,

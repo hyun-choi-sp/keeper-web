@@ -35,16 +35,75 @@ export default async function handler(req, res) {
     const tenant = await queryTenant(targetName, environment, credentials);
     const instancePasswords = await getInstancePasswords(credentials);
     const existingConnections = await listConnections();
-    const existingConnectionNames = new Set(
-      Object.values(existingConnections).map((conn) => conn.name)
+    const existingByName = new Map(
+      Object.entries(existingConnections).map(([id, conn]) => [
+        conn.name,
+        { ...conn, identifier: id },
+      ])
+    );
+    const overrideByStackKey = new Map(
+      (overrides || []).map((item) => [item.stackKey, item])
     );
 
     const instances = Object.entries(tenant.instanceStack || {});
     const keeperConnections = [];
+    const updateConnections = [];
     const errors = [];
 
     for (const [stackKey, instance] of instances) {
       if (instance.state === "terminated") continue;
+
+      const baseConfig = instancePasswords[instance.imageId] || null;
+      const needsConfig = !baseConfig;
+      const needsPassword = Boolean(baseConfig && baseConfig.username && !baseConfig.password);
+      const connectionName = `${targetName} - ${instance.displayName}`;
+      const existingConnection = existingByName.get(connectionName);
+      const override = overrideByStackKey.get(stackKey);
+
+      if (existingConnection) {
+        if (!override) {
+          continue;
+        }
+
+        const parameters = { ...(existingConnection.parameters || {}) };
+        const protocol = override.protocol || existingConnection.protocol;
+
+        if (override.username) {
+          parameters.username = override.username;
+        }
+        if (override.password) {
+          parameters.password = override.password;
+        }
+
+        if (!parameters.password) {
+          errors.push({
+            stackKey,
+            displayName: instance.displayName,
+            message: "Password required to update existing connection.",
+          });
+          continue;
+        }
+
+        updateConnections.push({
+          identifier: existingConnection.identifier,
+          parentIdentifier: existingConnection.parentIdentifier,
+          name: connectionName,
+          protocol,
+          parameters: buildConnectionParameters(protocol, parameters),
+          attributes: existingConnection.attributes || {
+            "max-connections": "",
+            "max-connections-per-user": "",
+            "guacd-hostname": "",
+            "guacd-port": "",
+            "guacd-encryption": "",
+          },
+        });
+        continue;
+      }
+
+      if (!override && (needsConfig || needsPassword)) {
+        continue;
+      }
 
       const { error, config } = resolveInstanceConfig({
         instance,
@@ -62,11 +121,6 @@ export default async function handler(req, res) {
         continue;
       }
 
-      const connectionName = `${targetName} - ${instance.displayName}`;
-      if (existingConnectionNames.has(connectionName)) {
-        continue;
-      }
-
       const hostname = instance.publicIp || instance.publicDns || instance.publicIntDns;
       keeperConnections.push({
         name: connectionName,
@@ -80,6 +134,9 @@ export default async function handler(req, res) {
 
     if (errors.length) {
       return res.status(400).json({ error: "Missing config.", details: errors });
+    }
+    if (!keeperConnections.length && !updateConnections.length) {
+      return res.status(400).json({ error: "No changes to apply." });
     }
 
     const groupIdentifier = await ensureGroup(targetName);
@@ -117,11 +174,31 @@ export default async function handler(req, res) {
       );
     }
 
+    for (const connection of updateConnections) {
+      await axios.put(
+        `${apiUrl}/api/session/data/mysql/connections/${connection.identifier}`,
+        {
+          parentIdentifier: connection.parentIdentifier,
+          name: connection.name,
+          protocol: connection.protocol,
+          parameters: connection.parameters,
+          attributes: connection.attributes,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Guacamole-Token": authToken,
+          },
+        }
+      );
+    }
+
     await updateDynamoDBRecord(tenant.GUID, environment, credentials);
 
     res.json({
       ok: true,
       addedConnections: keeperConnections.length,
+      updatedConnections: updateConnections.length,
       groupIdentifier,
     });
   } catch (error) {
