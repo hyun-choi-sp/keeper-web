@@ -115,6 +115,10 @@ function buildInstancesPlan(instanceStack, instancePasswords, targetName, existi
       existingUsername: extractUsername(existing?.parameters),
       suggestedUsername: existing?.suggestedUsername || null,
       connectionId: existing?.identifier || null,
+      sharingProfileExists: Boolean(existing?.sharingProfileExists),
+      sharingProfileIdentifier: existing?.sharingProfileIdentifier || null,
+      sharingProfileName: existing?.sharingProfileName || null,
+      assignedUsers: existing?.assignedUsers || [],
     };
   });
 }
@@ -162,6 +166,17 @@ function getKeeperApiUrl() {
 
 async function listConnections() {
   const response = await axios.get(`${keeperApiUrl}/api/session/data/mysql/connections`, {
+    headers: {
+      "Content-Type": "application/json",
+      "Guacamole-Token": keeperAuthToken,
+    },
+  });
+
+  return response.data;
+}
+
+async function listSharingProfiles() {
+  const response = await axios.get(`${keeperApiUrl}/api/session/data/mysql/sharingProfiles`, {
     headers: {
       "Content-Type": "application/json",
       "Guacamole-Token": keeperAuthToken,
@@ -338,6 +353,7 @@ module.exports = {
   getAuthToken,
   getKeeperApiUrl,
   listConnections,
+  listSharingProfiles,
   ensureGroup,
   getGroupIdentifier,
   resolveInstanceConfig,

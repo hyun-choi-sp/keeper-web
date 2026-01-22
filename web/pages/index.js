@@ -27,8 +27,111 @@ export default function Home() {
   const [dangerOpen, setDangerOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [statusMinimized, setStatusMinimized] = useState(false);
+  const [showInitialPassword, setShowInitialPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [errorQueue, setErrorQueue] = useState([]);
+  const [errorHistory, setErrorHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [shareLinks, setShareLinks] = useState({});
+  const [shareLoading, setShareLoading] = useState({});
+  const [stackPulse, setStackPulse] = useState(false);
+
+  const errorDisplayMs = 10000;
+  const errorFadeMs = 1500;
+  const errorMaxCount = 10;
+  const initialUserPassword = "Sailp0!nt";
+
+  function pushError(nextError) {
+    if (!nextError) return;
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setStatusMinimized(false);
+    setShowHistory(false);
+    setError(nextError);
+    setErrorHistory((prev) => {
+      const next = [{ id, message: nextError, kind: "error" }, ...prev];
+      if (next.length > errorMaxCount) {
+        return next.slice(0, errorMaxCount);
+      }
+      return next;
+    });
+    setErrorQueue((prev) => {
+      const next = [
+        { id, message: nextError, kind: "error", fading: false, fresh: true },
+        ...prev,
+      ];
+      if (next.length > errorMaxCount) {
+        return next.slice(0, errorMaxCount);
+      }
+      return next;
+    });
+
+    setStackPulse(true);
+    window.setTimeout(() => {
+      setStackPulse(false);
+    }, 260);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, fresh: false } : item))
+      );
+    }, 240);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, fading: true } : item))
+      );
+    }, errorDisplayMs);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) => prev.filter((item) => item.id !== id));
+    }, errorDisplayMs + errorFadeMs);
+  }
+
+  function pushOk(nextMessage) {
+    if (!nextMessage) return;
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setStatusMinimized(false);
+    setShowHistory(false);
+    setErrorHistory((prev) => {
+      const next = [{ id, message: nextMessage, kind: "ok" }, ...prev];
+      if (next.length > errorMaxCount) {
+        return next.slice(0, errorMaxCount);
+      }
+      return next;
+    });
+    setErrorQueue((prev) => {
+      const next = [
+        { id, message: nextMessage, kind: "ok", fading: false, fresh: true },
+        ...prev,
+      ];
+      if (next.length > errorMaxCount) {
+        return next.slice(0, errorMaxCount);
+      }
+      return next;
+    });
+
+    setStackPulse(true);
+    window.setTimeout(() => {
+      setStackPulse(false);
+    }, 260);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, fresh: false } : item))
+      );
+    }, 240);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, fading: true } : item))
+      );
+    }, errorDisplayMs);
+
+    window.setTimeout(() => {
+      setErrorQueue((prev) => prev.filter((item) => item.id !== id));
+    }, errorDisplayMs + errorFadeMs);
+  }
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config`, { credentials: "include" })
@@ -54,9 +157,36 @@ export default function Home() {
     return preview.instances.filter((instance) => instance.exists);
   }, [preview]);
 
+  const assignedUsers = useMemo(() => {
+    if (!preview?.instances) return [];
+    const seen = new Set();
+    preview.instances.forEach((instance) => {
+      (instance.assignedUsers || []).forEach((user) => seen.add(user));
+    });
+    return Array.from(seen).sort();
+  }, [preview]);
+
   const hasUpdates = existingInstances.length > 0;
   const provisionLabel = hasUpdates ? "Update Connections" : "Create Connections";
   const provisioningLabel = hasUpdates ? "Updating..." : "Provisioning...";
+  const hasActionableChanges = useMemo(() => {
+    if (!preview?.instances) return false;
+
+    return preview.instances.some((instance) => {
+      const override = overrides[instance.stackKey];
+      if (instance.exists) {
+        if (!override?.updateExisting) return false;
+        return Boolean(override.protocol || override.username || override.password);
+      }
+
+      if (!instance.needsConfig && !instance.needsPassword) {
+        return true;
+      }
+
+      if (!override) return false;
+      return Boolean(override.protocol || override.username || override.password);
+    });
+  }, [preview, overrides]);
 
   function updateOverride(stackKey, field, value, imageId) {
     setOverrides((prev) => ({
@@ -72,6 +202,23 @@ export default function Home() {
 
   function applySuggestedUsername(stackKey, imageId, value) {
     updateOverride(stackKey, "username", value, imageId);
+  }
+
+  function toggleUpdateExisting(stackKey, imageId, enabled) {
+    setOverrides((prev) => {
+      const next = { ...prev };
+      if (enabled) {
+        next[stackKey] = {
+          stackKey,
+          imageId,
+          ...(prev[stackKey] || {}),
+          updateExisting: true,
+        };
+      } else {
+        delete next[stackKey];
+      }
+      return next;
+    });
   }
 
   async function handleLogin(event) {
@@ -101,11 +248,11 @@ export default function Home() {
       setLoginState("success");
       setIsAuthenticated(true);
       setShowLoginForm(false);
-      setMessage("Authenticated to Keeper.");
+      pushOk("Authenticated to Keeper.");
     } catch (err) {
       setLoginState("error");
       setIsAuthenticated(false);
-      setError(err.message);
+      pushError(err.message);
     }
   }
 
@@ -122,10 +269,27 @@ export default function Home() {
       setLoginState("idle");
       setIsAuthenticated(false);
       setShowLoginForm(true);
-      setMessage("Logged out.");
+      setPreview(null);
+      setGroupIdentifier("");
+      setPreviewGroupIdentifier("");
+      setOverrides({});
+      setAwsEnv("");
+      setUserEmails("");
+      setDeleteState("idle");
+      setDeletedConnections({});
+      setPollingState("idle");
+      setDangerOpen(false);
+      setDeleteConfirm("");
+      setShareLinks({});
+      setShareLoading({});
+      setStatusMinimized(false);
+      setShowHistory(false);
+      setErrorQueue([]);
+      setErrorHistory([]);
+      pushOk("Logged out.");
     } catch (err) {
       setLoginState("error");
-      setError(err.message);
+      pushError(err.message);
     }
   }
 
@@ -155,16 +319,23 @@ export default function Home() {
       const payload = await response.json();
       setPreview(payload);
       setPreviewGroupIdentifier(payload.groupIdentifier || "");
+      setShareLinks({});
+      setShareLoading({});
       setOverrides({});
       setPreviewState("success");
-      setMessage(`Loaded tenant ${payload.tenant.name}.`);
+      pushOk(`Loaded tenant ${payload.tenant.name}.`);
     } catch (err) {
       setPreviewState("error");
-      setError(err.message);
+      pushError(err.message);
     }
   }
 
   async function handleProvision() {
+    if (!hasActionableChanges) {
+      pushError("No changes to apply.");
+      return;
+    }
+
     setProvisionState("loading");
     setError("");
     setMessage("");
@@ -193,11 +364,11 @@ export default function Home() {
       const payload = await response.json();
       setProvisionState("success");
       setGroupIdentifier(payload.groupIdentifier || "");
-      setMessage(`Created ${payload.addedConnections} connections.`);
+      pushOk(`Created ${payload.addedConnections} connections.`);
       await pollPreview({ attempts: 6, intervalMs: 5000 });
     } catch (err) {
       setProvisionState("error");
-      setError(err.message);
+      pushError(err.message);
     }
   }
 
@@ -226,12 +397,15 @@ export default function Home() {
       const payload = await response.json();
       setPreview(payload);
       setPreviewGroupIdentifier(payload.groupIdentifier || "");
+      setShareLinks({});
+      setShareLoading({});
+      setOverrides({});
       setPreviewState("success");
-      setMessage(`Loaded tenant ${payload.tenant.name}.`);
+      pushOk(`Loaded tenant ${payload.tenant.name}.`);
       return payload;
     } catch (err) {
       setPreviewState("error");
-      setError(err.message);
+      pushError(err.message);
       return null;
     }
   }
@@ -279,7 +453,7 @@ export default function Home() {
       }
 
       setDeleteState("success");
-      setMessage(`Deleted connection ${instance.connectionName}.`);
+      pushOk(`Deleted connection ${instance.connectionName}.`);
       setDeletedConnections((prev) => ({
         ...prev,
         [instance.stackKey]: "verifying",
@@ -323,7 +497,7 @@ export default function Home() {
         ...prev,
         [instance.stackKey]: "idle",
       }));
-      setError(err.message);
+      pushError(err.message);
     }
   }
 
@@ -331,7 +505,7 @@ export default function Home() {
     if (!groupIdentifier && !targetName) return;
     const expected = `DELETE ${targetName}`;
     if (deleteConfirm !== expected) {
-      setError(`Type "${expected}" to confirm.`);
+      pushError(`Type "${expected}" to confirm.`);
       return;
     }
 
@@ -356,7 +530,7 @@ export default function Home() {
       }
 
       setDeleteState("success");
-      setMessage(`Deleted group ${targetName}.`);
+      pushOk(`Deleted group ${targetName}.`);
       setGroupIdentifier("");
       setPreviewGroupIdentifier("");
       setDangerOpen(false);
@@ -364,19 +538,80 @@ export default function Home() {
       await pollPreview({ attempts: 4, intervalMs: 4000 });
     } catch (err) {
       setDeleteState("error");
-      setError(err.message);
+      pushError(err.message);
+    }
+  }
+
+  async function handleGenerateShareLink(instance) {
+    if (!instance?.connectionId) {
+      pushError("Connection not found.");
+      return;
+    }
+
+    setShareLoading((prev) => ({ ...prev, [instance.stackKey]: true }));
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/tenant/share-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          connectionId: instance.connectionId,
+          sharingProfileId: instance.sharingProfileIdentifier,
+          sharingProfileName: instance.sharingProfileName,
+          connectionName: instance.connectionName,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || "Share link failed.");
+      }
+
+      const payload = await response.json();
+      setShareLinks((prev) => ({ ...prev, [instance.stackKey]: payload.link }));
+      if (payload.sharingProfileId && !instance.sharingProfileIdentifier) {
+        setPreview((prev) => {
+          if (!prev?.instances) return prev;
+          return {
+            ...prev,
+            instances: prev.instances.map((item) => {
+              if (item.stackKey !== instance.stackKey) return item;
+              return {
+                ...item,
+                sharingProfileExists: true,
+                sharingProfileIdentifier: payload.sharingProfileId,
+                sharingProfileName: item.sharingProfileName || instance.connectionName,
+              };
+            }),
+          };
+        });
+      }
+      pushOk("Sharing link generated.");
+    } catch (err) {
+      pushError(err.message);
+    } finally {
+      setShareLoading((prev) => ({ ...prev, [instance.stackKey]: false }));
     }
   }
 
   async function handleAddUsers() {
-    setUserState("loading");
-    setError("");
-    setMessage("");
-
     const users = userEmails
       .split(/\r?\n|,/)
       .map((value) => value.trim())
       .filter(Boolean);
+
+    if (users.length === 0) {
+      setUserState("idle");
+      pushError("Add at least one user email.");
+      return;
+    }
+
+    setUserState("loading");
+    setError("");
+    setMessage("");
 
     try {
       const response = await fetch(`${API_BASE}/api/users/add`, {
@@ -396,12 +631,39 @@ export default function Home() {
 
       const payload = await response.json();
       setUserState("success");
-      setMessage(
+      pushOk(
         `Updated ${payload.results.length} user(s). Connections in group: ${payload.connections}.`
       );
     } catch (err) {
       setUserState("error");
-      setError(err.message);
+      pushError(err.message);
+    }
+  }
+
+  async function handleCopyInitialPassword() {
+    if (!navigator?.clipboard) {
+      pushError("Clipboard unavailable.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(initialUserPassword);
+      pushOk("Initial password copied.");
+    } catch (err) {
+      pushError("Failed to copy password.");
+    }
+  }
+
+  async function handleCopyShareLink(link) {
+    if (!link) return;
+    if (!navigator?.clipboard) {
+      pushError("Clipboard unavailable.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      pushOk("Sharing link copied.");
+    } catch (err) {
+      pushError("Failed to copy link.");
     }
   }
 
@@ -659,137 +921,245 @@ export default function Home() {
               <div className="status">No missing credentials detected.</div>
             ) : (
               <div className="list">
-                {actionInstances.map((instance) => (
-                  <div className="list-item" key={instance.stackKey}>
-                    <h3>{instance.displayName}</h3>
-                    <small>{instance.imageId}</small>
-                    {instance.exists && (
-                      <div className="status status-split">
-                        <span className="pill ok">Already Exists</span>{" "}
-                        {instance.connectionName}
-                        <span className="status-spacer" />
-                        {deletedConnections[instance.stackKey] === "deleting" ? (
-                          <button className="danger-button" type="button" disabled>
-                            Deleting...
-                          </button>
-                        ) : deletedConnections[instance.stackKey] === "verifying" ? (
-                          <button className="danger-button" type="button" disabled>
-                            Verifying...
-                          </button>
-                        ) : deletedConnections[instance.stackKey] === "verified" ? (
-                          <button className="danger-button" type="button" disabled>
-                            Available
-                          </button>
-                        ) : deletedConnections[instance.stackKey] === "failed" ? (
-                          <button className="danger-button" type="button" disabled>
-                            Still Exists
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="danger-button"
-                            onClick={() => handleDeleteConnection(instance)}
-                          >
-                            Delete Connection
-                          </button>
+                {actionInstances.map((instance) => {
+                  const updatesEnabled = Boolean(
+                    overrides[instance.stackKey]?.updateExisting
+                  );
+                  const updatesBlocked = instance.exists && !updatesEnabled;
+                  return (
+                    <div className="list-item connection-card" key={instance.stackKey}>
+                      <div className="card-header">
+                        <div>
+                          <h3>{instance.displayName}</h3>
+                          <small className="card-meta">{instance.imageId}</small>
+                        </div>
+                        {instance.exists && (
+                          <div className="status-actions">
+                            {deletedConnections[instance.stackKey] === "deleting" ? (
+                              <button className="danger-button" type="button" disabled>
+                                Deleting...
+                              </button>
+                            ) : deletedConnections[instance.stackKey] === "verifying" ? (
+                              <button className="danger-button" type="button" disabled>
+                                Verifying...
+                              </button>
+                            ) : deletedConnections[instance.stackKey] === "verified" ? (
+                              <button className="danger-button" type="button" disabled>
+                                Available
+                              </button>
+                            ) : deletedConnections[instance.stackKey] === "failed" ? (
+                              <button className="danger-button" type="button" disabled>
+                                Still Exists
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="danger-button"
+                                onClick={() => handleDeleteConnection(instance)}
+                              >
+                                Delete Connection
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                    <div className="row" style={{ marginTop: 10 }}>
-                      {(instance.needsConfig || instance.exists) && (
-                        <>
-                          <label>
-                            Protocol
-                            <select
-                              value={
-                                overrides[instance.stackKey]?.protocol ||
-                                instance.existingProtocol ||
-                                ""
-                              }
-                              onChange={(event) =>
-                                updateOverride(
-                                  instance.stackKey,
-                                  "protocol",
-                                  event.target.value,
-                                  instance.imageId
-                                )
-                              }
-                            >
-                              <option value="">Select</option>
-                              <option value="rdp">RDP</option>
-                              <option value="ssh">SSH</option>
-                            </select>
-                          </label>
-                          <label>
-                            Username
+                      <div className="status-row">
+                        <div className="status-group">
+                          <div className="status-line">
+                            {instance.exists ? (
+                              <span className="pill ok">Already Exists</span>
+                            ) : (
+                              <span className="pill warn">New Connection</span>
+                            )}
+                            {instance.connectionName ? (
+                              <span
+                                className="status-text"
+                                title={instance.connectionName}
+                              >
+                                {instance.connectionName}
+                              </span>
+                            ) : null}
+                          </div>
+                          {instance.exists && (
+                            <div className="status-line">
+                              <span
+                                className={`pill ${
+                                  instance.sharingProfileExists ? "ok" : "warn"
+                                }`}
+                              >
+                                Sharing Profile{" "}
+                                {instance.sharingProfileExists ? "Present" : "Missing"}
+                              </span>
+                              {instance.sharingProfileExists &&
+                              instance.sharingProfileName ? (
+                                <span
+                                  className="status-text"
+                                  title={instance.sharingProfileName}
+                                >
+                                  {instance.sharingProfileName}
+                                </span>
+                              ) : null}
+                            </div>
+                          )}
+                          {instance.exists && (
+                            <div className="status-line">
+                              <button
+                                className="link-button"
+                                type="button"
+                                onClick={() => handleGenerateShareLink(instance)}
+                                disabled={shareLoading[instance.stackKey]}
+                              >
+                                {shareLoading[instance.stackKey]
+                                  ? "Generating link..."
+                                  : "Generate Sharing Link"}
+                              </button>
+                              {shareLinks[instance.stackKey] ? (
+                                <>
+                                  <a
+                                    className="status-text status-link"
+                                    href={shareLinks[instance.stackKey]}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={shareLinks[instance.stackKey]}
+                                  >
+                                    {shareLinks[instance.stackKey]}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="icon-button"
+                                    onClick={() =>
+                                      handleCopyShareLink(shareLinks[instance.stackKey])
+                                    }
+                                    aria-label="Copy sharing link"
+                                  >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                      <rect x="8" y="8" width="12" height="12" rx="2" />
+                                      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+                                    </svg>
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                        {instance.exists && (
+                          <label className="inline-checkbox">
                             <input
-                              value={
-                                overrides[instance.stackKey]?.username ||
-                                instance.existingUsername ||
-                                ""
-                              }
+                              type="checkbox"
+                              checked={updatesEnabled}
                               onChange={(event) =>
-                                updateOverride(
+                                toggleUpdateExisting(
                                   instance.stackKey,
-                                  "username",
-                                  event.target.value,
-                                  instance.imageId
+                                  instance.imageId,
+                                  event.target.checked
                                 )
                               }
                             />
+                            Enable updates
                           </label>
-                        </>
-                      )}
-                      {(instance.needsConfig ||
-                        instance.needsPassword ||
-                        instance.exists) && (
-                        <label>
-                          Password
-                          <input
-                            type="password"
-                            value={overrides[instance.stackKey]?.password || ""}
-                            onChange={(event) =>
-                              updateOverride(
-                                instance.stackKey,
-                                "password",
-                                event.target.value,
-                                instance.imageId
-                              )
-                            }
-                          />
-                        </label>
-                      )}
-                    </div>
-                    {instance.exists && (
-                      <div className="status">
-                        <span className="pill warn">Note</span> Username/password
-                        cannot be fetched from Keeper. Leave empty to keep existing
-                        values, or enter new values to update.
+                        )}
                       </div>
-                    )}
-                    {instance.exists &&
-                      !instance.existingUsername &&
-                      instance.suggestedUsername && (
+                      <div className="row" style={{ marginTop: 10 }}>
+                        {(instance.needsConfig || instance.exists) && (
+                          <>
+                            <label className={updatesBlocked ? "field-disabled" : ""}>
+                              Protocol
+                              <select
+                                value={
+                                  overrides[instance.stackKey]?.protocol ||
+                                  instance.existingProtocol ||
+                                  ""
+                                }
+                                onChange={(event) =>
+                                  updateOverride(
+                                    instance.stackKey,
+                                    "protocol",
+                                    event.target.value,
+                                    instance.imageId
+                                  )
+                                }
+                                disabled={updatesBlocked}
+                              >
+                                <option value="">Select</option>
+                                <option value="rdp">RDP</option>
+                                <option value="ssh">SSH</option>
+                              </select>
+                            </label>
+                            <label className={updatesBlocked ? "field-disabled" : ""}>
+                              Username
+                              <input
+                                value={
+                                  overrides[instance.stackKey]?.username ||
+                                  instance.existingUsername ||
+                                  ""
+                                }
+                                onChange={(event) =>
+                                  updateOverride(
+                                    instance.stackKey,
+                                    "username",
+                                    event.target.value,
+                                    instance.imageId
+                                  )
+                                }
+                                autoComplete="off"
+                                disabled={updatesBlocked}
+                              />
+                            </label>
+                          </>
+                        )}
+                        {(instance.needsConfig ||
+                          instance.needsPassword ||
+                          instance.exists) && (
+                          <label className={updatesBlocked ? "field-disabled" : ""}>
+                            Password
+                            <input
+                              type="password"
+                              value={overrides[instance.stackKey]?.password || ""}
+                              onChange={(event) =>
+                                updateOverride(
+                                  instance.stackKey,
+                                  "password",
+                                  event.target.value,
+                                  instance.imageId
+                                )
+                              }
+                              autoComplete="new-password"
+                              disabled={updatesBlocked}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      {instance.exists && (
                         <div className="status">
-                          <span className="pill ok">Suggestion</span>{" "}
-                          {instance.suggestedUsername}{" "}
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() =>
-                              applySuggestedUsername(
-                                instance.stackKey,
-                                instance.imageId,
-                                instance.suggestedUsername
-                              )
-                            }
-                          >
-                            Use
-                          </button>
+                          <span className="pill warn">Note</span> Username/password
+                          cannot be fetched from Keeper. Leave empty to keep existing
+                          values, or enter new values to update.
                         </div>
                       )}
-                  </div>
-                ))}
+                      {instance.exists &&
+                        !instance.existingUsername &&
+                        instance.suggestedUsername && (
+                          <div className="status">
+                            <span className="pill ok">Suggestion</span>{" "}
+                            {instance.suggestedUsername}{" "}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() =>
+                                applySuggestedUsername(
+                                  instance.stackKey,
+                                  instance.imageId,
+                                  instance.suggestedUsername
+                                )
+                              }
+                            >
+                              Use
+                            </button>
+                          </div>
+                        )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {existingInstances.length > 0 && (
@@ -891,6 +1261,44 @@ export default function Home() {
                   placeholder="first.last@company.com"
                 />
               </label>
+              {assignedUsers.length > 0 && (
+                <div className="existing-users">
+                  <span className="pill ok">Existing users</span>
+                  {assignedUsers.map((user) => (
+                    <span key={user} className="user-chip" title={user}>
+                      {user}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="password-row">
+                <span className="password-label">Initial password</span>
+                <span className="password-value" aria-live="polite">
+                  {showInitialPassword ? initialUserPassword : "••••••••"}
+                </span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setShowInitialPassword((prev) => !prev)}
+                  aria-label={showInitialPassword ? "Hide password" : "Show password"}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                    <circle cx="12" cy="12" r="3.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={handleCopyInitialPassword}
+                  aria-label="Copy password"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+                  </svg>
+                </button>
+              </div>
               <div className="button-row">
                 <button className="primary" type="button" onClick={handleAddUsers}>
                   {userState === "loading" ? "Updating..." : "Add Users"}
@@ -899,38 +1307,70 @@ export default function Home() {
             </div>
           </section>
 
-          {(message || error) && (
-            <div className={statusMinimized ? "status-float minimized" : "status-float"}>
-              <button
-                type="button"
-                className="status-toggle"
-                onClick={() => setStatusMinimized((prev) => !prev)}
-                aria-label={statusMinimized ? "Show status" : "Minimize status"}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 2a7 7 0 0 0-7 7v3.2l-1.4 2.8a1 1 0 0 0 .9 1.5h15a1 1 0 0 0 .9-1.5L19 12.2V9a7 7 0 0 0-7-7z" />
-                  <path d="M9.5 19a2.5 2.5 0 0 0 5 0" />
-                </svg>
-                <span className={error ? "status-badge danger" : "status-badge"}>
-                  {error ? "!" : "1"}
-                </span>
-              </button>
-              {!statusMinimized && (
-                <div className="status-body">
-                  {message && (
-                    <div className="status">
-                      <span className="pill ok">OK</span> {message}
+          <div className="toast-shell">
+            {!statusMinimized && errorQueue.length > 0 && (
+              <div className={`toast-stack${stackPulse ? " pulse" : ""}`} aria-live="polite">
+                {errorQueue.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`toast-card${item.kind === "ok" ? " ok" : ""}${
+                      item.fading ? " fading" : ""
+                    }${item.fresh ? " fresh" : ""}`}
+                  >
+                    <span className={`pill ${item.kind === "ok" ? "ok" : "bad"}`}>
+                      {item.kind === "ok" ? "OK" : "Error"}
+                    </span>
+                    <div className="error-message" title={item.message}>
+                      {item.message}
                     </div>
-                  )}
-                  {error && (
-                    <div className="status">
-                      <span className="pill bad">Error</span> {error}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!statusMinimized &&
+              errorQueue.length === 0 &&
+              showHistory &&
+              errorHistory.length > 0 && (
+                <div className="toast-stack" aria-live="off">
+                  {errorHistory.map((item) => (
+                    <div key={item.id} className={`toast-card${item.kind === "ok" ? " ok" : ""}`}>
+                      <span className={`pill ${item.kind === "ok" ? "ok" : "bad"}`}>
+                        {item.kind === "ok" ? "OK" : "Error"}
+                      </span>
+                      <div className="error-message" title={item.message}>
+                        {item.message}
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
-            </div>
-          )}
+            <button
+              type="button"
+              className={`status-toggle${errorHistory.length > 0 ? " has-alert" : ""}`}
+              onClick={() =>
+                setStatusMinimized((prev) => {
+                  const next = !prev;
+                  if (!next) {
+                    setShowHistory(true);
+                  }
+                  return next;
+                })
+              }
+              aria-label={statusMinimized ? "Show alerts" : "Hide alerts"}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5v3.1l-1.6 2.9a1 1 0 0 0 .9 1.5h14.4a1 1 0 0 0 .9-1.5l-1.6-2.9V9a6.5 6.5 0 0 0-6.5-6.5z" />
+                <path d="M9.2 18.5a2.8 2.8 0 0 0 5.6 0" />
+                <path d="M5.2 8.2c.4-2.6 2.4-4.7 5-5.2" />
+                <path d="M18.8 8.2c-.4-2.6-2.4-4.7-5-5.2" />
+              </svg>
+              {errorHistory.length > 0 && (
+                <span className="status-badge danger">
+                  {Math.min(errorHistory.length, 9)}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </main>

@@ -7,6 +7,7 @@ const {
   buildInstancesPlan,
   parseAwsEnv,
   listConnections,
+  listSharingProfiles,
   getKeeperApiUrl,
   getAuthToken,
   getGroupIdentifier,
@@ -33,8 +34,13 @@ export default async function handler(req, res) {
     const tenant = await queryTenant(targetName, environment, credentials);
     const instancePasswords = await getInstancePasswords(credentials);
     const existingConnections = await listConnections();
+    const sharingProfilesResponse = await listSharingProfiles();
     const apiUrl = getKeeperApiUrl();
     const authToken = getAuthToken();
+    const headers = {
+      "Content-Type": "application/json",
+      "Guacamole-Token": authToken,
+    };
 
     const matchingEntries = Object.entries(existingConnections).filter(
       ([_, conn]) => conn?.name && conn.name.startsWith(`${targetName} - `)
@@ -43,12 +49,7 @@ export default async function handler(req, res) {
     const detailedConnections = await Promise.all(
       matchingEntries.map(([id, conn]) =>
         axios
-          .get(`${apiUrl}/api/session/data/mysql/connections/${id}`, {
-            headers: {
-              "Content-Type": "application/json",
-              "Guacamole-Token": authToken,
-            },
-          })
+          .get(`${apiUrl}/api/session/data/mysql/connections/${id}`, { headers })
           .then((response) => ({ id, data: response.data, fallback: conn }))
           .catch(() => ({ id, data: null, fallback: conn }))
       )
@@ -57,15 +58,70 @@ export default async function handler(req, res) {
     const historyResults = await Promise.all(
       matchingEntries.map(([id]) =>
         axios
-          .get(`${apiUrl}/api/session/data/mysql/connections/${id}/history`, {
-            headers: {
-              "Content-Type": "application/json",
-              "Guacamole-Token": authToken,
-            },
-          })
+          .get(`${apiUrl}/api/session/data/mysql/connections/${id}/history`, { headers })
           .then((response) => ({ id, data: response.data }))
           .catch(() => ({ id, data: [] }))
       )
+    );
+
+    const permissionResults = await Promise.all(
+      matchingEntries.map(([id]) =>
+        axios
+          .get(`${apiUrl}/api/session/data/mysql/connections/${id}/permissions`, {
+            headers,
+          })
+          .then((response) => ({ id, data: response.data }))
+          .catch(() => ({ id, data: null }))
+      )
+    );
+
+    const extractUsers = (permissions) => {
+      if (!permissions || typeof permissions !== "object") return [];
+      const candidates = [];
+      if (permissions.userPermissions && typeof permissions.userPermissions === "object") {
+        candidates.push(permissions.userPermissions);
+      }
+      if (permissions.users && typeof permissions.users === "object") {
+        candidates.push(permissions.users);
+      }
+      if (!candidates.length) {
+        candidates.push(permissions);
+      }
+
+      const ignoreKeys = new Set([
+        "connectionPermissions",
+        "connectionGroupPermissions",
+        "systemPermissions",
+        "userPermissions",
+        "activeConnectionPermissions",
+      ]);
+      const users = new Set();
+
+      candidates.forEach((bucket) => {
+        Object.entries(bucket).forEach(([key, value]) => {
+          if (ignoreKeys.has(key)) return;
+          if (!value) return;
+          if (Array.isArray(value)) {
+            if (value.length > 0) users.add(key);
+            return;
+          }
+          if (typeof value === "string") {
+            if (value) users.add(key);
+            return;
+          }
+          if (typeof value === "object") {
+            if (value.READ || value.read || value.UPDATE || value.update || value.ADMIN) {
+              users.add(key);
+            }
+          }
+        });
+      });
+
+      return Array.from(users);
+    };
+
+    const connectionUsersById = new Map(
+      permissionResults.map(({ id, data }) => [id, extractUsers(data)])
     );
 
     const suggestedById = new Map(
@@ -79,15 +135,34 @@ export default async function handler(req, res) {
       })
     );
 
+    const profilesList = Array.isArray(sharingProfilesResponse)
+      ? sharingProfilesResponse
+      : sharingProfilesResponse?.sharingProfiles && Array.isArray(sharingProfilesResponse.sharingProfiles)
+      ? sharingProfilesResponse.sharingProfiles
+      : sharingProfilesResponse && typeof sharingProfilesResponse === "object"
+      ? Object.values(sharingProfilesResponse)
+      : [];
+
+    const sharingProfileByConnection = new Map(
+      profilesList
+        .filter((profile) => profile?.primaryConnectionIdentifier)
+        .map((profile) => [profile.primaryConnectionIdentifier, profile])
+    );
+
     const existingByName = new Map(
       detailedConnections.map(({ id, data, fallback }) => {
         const connection = data || fallback;
+        const profile = sharingProfileByConnection.get(id) || null;
         return [
           connection.name,
           {
             ...connection,
             identifier: id,
             suggestedUsername: suggestedById.get(id) || null,
+            sharingProfileExists: Boolean(profile),
+            sharingProfileIdentifier: profile?.identifier || null,
+            sharingProfileName: profile?.name || null,
+            assignedUsers: connectionUsersById.get(id) || [],
           },
         ];
       })

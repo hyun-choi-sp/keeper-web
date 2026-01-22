@@ -5,6 +5,7 @@ const {
   queryTenant,
   getInstancePasswords,
   listConnections,
+  listSharingProfiles,
   ensureGroup,
   resolveInstanceConfig,
   buildConnectionParameters,
@@ -35,6 +36,20 @@ export default async function handler(req, res) {
     const tenant = await queryTenant(targetName, environment, credentials);
     const instancePasswords = await getInstancePasswords(credentials);
     const existingConnections = await listConnections();
+    const sharingProfilesResponse = await listSharingProfiles();
+    const profilesList = Array.isArray(sharingProfilesResponse)
+      ? sharingProfilesResponse
+      : sharingProfilesResponse?.sharingProfiles && Array.isArray(sharingProfilesResponse.sharingProfiles)
+      ? sharingProfilesResponse.sharingProfiles
+      : sharingProfilesResponse && typeof sharingProfilesResponse === "object"
+      ? Object.values(sharingProfilesResponse)
+      : [];
+
+    const sharingProfileByConnection = new Map(
+      profilesList
+        .filter((profile) => profile?.primaryConnectionIdentifier)
+        .map((profile) => [profile.primaryConnectionIdentifier, profile])
+    );
     const existingByName = new Map(
       Object.entries(existingConnections).map(([id, conn]) => [
         conn.name,
@@ -61,7 +76,7 @@ export default async function handler(req, res) {
       const override = overrideByStackKey.get(stackKey);
 
       if (existingConnection) {
-        if (!override) {
+        if (!override || !override.updateExisting) {
           continue;
         }
 
@@ -150,7 +165,7 @@ export default async function handler(req, res) {
         password: connection.password,
       });
 
-      await axios.post(
+      const connectionResponse = await axios.post(
         `${apiUrl}/api/session/data/mysql/connections`,
         {
           parentIdentifier: groupIdentifier,
@@ -172,6 +187,26 @@ export default async function handler(req, res) {
           },
         }
       );
+
+      const createdId = connectionResponse?.data?.identifier;
+      if (createdId && !sharingProfileByConnection.has(createdId)) {
+        await axios.post(
+          `${apiUrl}/api/session/data/mysql/sharingProfiles`,
+          {
+            primaryConnectionIdentifier: createdId,
+            name: connection.name,
+            parameters: { "read-only": "" },
+            attributes: {},
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Guacamole-Token": authToken,
+            },
+          }
+        );
+        sharingProfileByConnection.set(createdId, { identifier: createdId, name: connection.name });
+      }
     }
 
     for (const connection of updateConnections) {
@@ -191,6 +226,28 @@ export default async function handler(req, res) {
           },
         }
       );
+
+      if (!sharingProfileByConnection.has(connection.identifier)) {
+        await axios.post(
+          `${apiUrl}/api/session/data/mysql/sharingProfiles`,
+          {
+            primaryConnectionIdentifier: connection.identifier,
+            name: connection.name,
+            parameters: { "read-only": "" },
+            attributes: {},
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Guacamole-Token": authToken,
+            },
+          }
+        );
+        sharingProfileByConnection.set(connection.identifier, {
+          identifier: connection.identifier,
+          name: connection.name,
+        });
+      }
     }
 
     await updateDynamoDBRecord(tenant.GUID, environment, credentials);

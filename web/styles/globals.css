@@ -180,6 +180,22 @@ label {
   gap: 6px;
 }
 
+.inline-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  margin-top: 10px;
+}
+
+.inline-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
 input,
 select,
 textarea {
@@ -261,6 +277,148 @@ button.secondary {
   border: 1px solid var(--panel-border);
   padding: 14px 16px;
   background: #fdfcfa;
+}
+
+.connection-card {
+  display: grid;
+  gap: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.card-meta {
+  display: inline-flex;
+  margin-top: 4px;
+}
+
+.status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.password-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  font-size: 13px;
+}
+
+.existing-users {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.user-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  font-size: 12px;
+  color: var(--ink-strong);
+}
+
+.password-label {
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+.password-value {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink-soft);
+  min-width: 80px;
+  text-align: center;
+}
+
+.icon-button {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.icon-button:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.status-text {
+  font-size: 13px;
+  color: var(--ink-soft);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field-disabled {
+  color: #8790a7;
+}
+
+.field-disabled input,
+.field-disabled select,
+.field-disabled textarea {
+  background: #f1f3f7;
+  border-color: #e1e5f0;
+  color: #8f98b0;
+  cursor: not-allowed;
+}
+
+.field-disabled input:hover,
+.field-disabled select:hover,
+.field-disabled textarea:hover {
+  cursor: not-allowed;
 }
 
 .list-item h3 {
@@ -509,6 +667,11 @@ button.secondary {
   padding: 0;
 }
 
+.link-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .danger-button {
   border: none;
   border-radius: 999px;
@@ -590,6 +753,78 @@ button.secondary {
   max-width: 520px;
 }
 
+.error-message {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-strong);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 4.2em;
+  word-break: break-word;
+}
+
+.toast-shell {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.toast-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.toast-card {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(230, 57, 70, 0.25);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+  color: var(--ink-strong);
+  width: fit-content;
+  max-width: 460px;
+  pointer-events: auto;
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+
+.toast-card.ok {
+  border-color: rgba(42, 157, 143, 0.25);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.toast-card.fresh {
+  animation: toastIn 260ms ease;
+}
+
+.toast-card.fading {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.toast-stack.pulse {
+  animation: stackPulse 260ms ease;
+}
+
+.toast-card:hover .error-message {
+  -webkit-line-clamp: unset;
+  max-height: 40vh;
+  overflow: auto;
+}
+
 .status-toggle {
   position: relative;
   border: none;
@@ -612,6 +847,13 @@ button.secondary {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.status-toggle.has-alert {
+  border-color: rgba(230, 57, 70, 0.35);
+  box-shadow: 0 12px 26px rgba(230, 57, 70, 0.18);
 }
 
 .status-badge {
@@ -720,6 +962,26 @@ button.secondary {
   }
 }
 
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stackPulse {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 768px) {
   main {
     padding: 28px 16px 60px;
@@ -731,6 +993,18 @@ button.secondary {
 
   .har-grid {
     grid-template-columns: 1fr;
+  }
+
+  .status-row {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-checkbox {
+    margin-top: 6px;
+  }
+
+  .status-text {
+    max-width: 100%;
   }
 }
 .step-icon {
