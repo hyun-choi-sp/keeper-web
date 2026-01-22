@@ -32,10 +32,13 @@ Open `http://localhost:3000`.
 ## Features
 - Keeper Manager: tenant preview, connection create/update, user access management
 - Existing connection checks and optional delete (per connection or whole group)
+- Sharing link generation (requires an active session)
 - AWS session env paste (for temporary credentials)
 - HAR Inspector: upload HAR, flow summary, filters, waterfall, issue hints, DQL suggestions
 
 ## Notes
 - Keeper login credentials are entered in the UI and stored in memory for the session.
+- Add Users uses a fixed initial password (visible in the UI with copy action).
 - `NEXT_PUBLIC_API_BASE` is optional (defaults to same origin).
 - For AWS access, you can paste the `export AWS_*` block into the Step 2 field instead of exporting in the shell.
+- Changes are tracked in `CHANGELOG.md`.
