@@ -284,6 +284,7 @@ export default function Home() {
       setShareLoading({});
       setStatusMinimized(false);
       setShowHistory(false);
+      setShowInitialPassword(false);
       setErrorQueue([]);
       setErrorHistory([]);
       pushOk("Logged out.");
@@ -1271,34 +1272,36 @@ export default function Home() {
                   ))}
                 </div>
               )}
-              <div className="password-row">
-                <span className="password-label">Initial password</span>
-                <span className="password-value" aria-live="polite">
-                  {showInitialPassword ? initialUserPassword : "••••••••"}
-                </span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => setShowInitialPassword((prev) => !prev)}
-                  aria-label={showInitialPassword ? "Hide password" : "Show password"}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
-                    <circle cx="12" cy="12" r="3.5" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={handleCopyInitialPassword}
-                  aria-label="Copy password"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="8" y="8" width="12" height="12" rx="2" />
-                    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-                  </svg>
-                </button>
-              </div>
+              {isAuthenticated && (
+                <div className="password-row">
+                  <span className="password-label">Initial password</span>
+                  <span className="password-value" aria-live="polite">
+                    {showInitialPassword ? initialUserPassword : "••••••••"}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setShowInitialPassword((prev) => !prev)}
+                    aria-label={showInitialPassword ? "Hide password" : "Show password"}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                      <circle cx="12" cy="12" r="3.5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={handleCopyInitialPassword}
+                    aria-label="Copy password"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="8" y="8" width="12" height="12" rx="2" />
+                      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+                    </svg>
+                  </button>
+                </div>
+              )}
               <div className="button-row">
                 <button className="primary" type="button" onClick={handleAddUsers}>
                   {userState === "loading" ? "Updating..." : "Add Users"}
