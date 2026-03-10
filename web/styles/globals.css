@@ -345,6 +345,37 @@ button.secondary {
   color: var(--ink-strong);
 }
 
+.email-draft-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(27, 79, 216, 0.05), rgba(255, 255, 255, 0.98));
+}
+
+.email-draft-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.email-draft-title {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+.email-draft-output {
+  min-height: 320px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .password-label {
   font-weight: 600;
   color: var(--ink-strong);

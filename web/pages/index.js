@@ -39,11 +39,68 @@ export default function Home() {
   const [shareLoading, setShareLoading] = useState({});
   const [stackPulse, setStackPulse] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState({});
+  const [emailDraft, setEmailDraft] = useState("");
 
   const errorDisplayMs = 10000;
   const errorFadeMs = 1500;
   const errorMaxCount = 10;
   const initialUserPassword = WINDOWS_DEFAULT_PASSWORD;
+
+  function toDisplayName(value) {
+    if (!value) return "Customer";
+    return value
+      .split(/[.\-_@\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  function buildUserCredentialLines(results) {
+    return results
+      .filter((item) => item?.status === "ok" && item.email)
+      .map((item) =>
+        item.created
+          ? `Username: ${item.email} / Temporary password: ${item.password || initialUserPassword}`
+          : `Username: ${item.email} / Password: Use the user's existing Keeper password`
+      );
+  }
+
+  function buildUserEmailDraft(results) {
+    const successfulResults = results.filter((item) => item?.status === "ok" && item.email);
+    if (!successfulResults.length) return "";
+
+    const customerName = "Customer";
+    const environmentName = preview?.tenant?.name || targetName || "N/A";
+    const credentialLines = buildUserCredentialLines(successfulResults);
+    const hasExistingUsers = successfulResults.some((item) => !item.created);
+    const passwordGuidance = hasExistingUsers
+      ? "For any existing Keeper user, keep the current password. For any newly created user, the temporary password is listed above and must be changed at first sign-in."
+      : "Each user above was created with the temporary password listed above and will be prompted to change it at first sign-in.";
+
+    return [
+      `Hi ${customerName},`,
+      "",
+      "The Keeper remote access has been configured for the requested user(s). Please find the details below.",
+      "",
+      `Environment: ${environmentName}`,
+      "Remote access link: https://poc-access.sailpoint.com/",
+      "",
+      ...credentialLines,
+      "",
+      "Please share this information with the end user(s), as we do not send these credentials directly.",
+      passwordGuidance,
+      "If a user signs in with a temporary password, please ask them to change it immediately after the first login.",
+      "",
+      "To change the password in Keeper Connection Manager (KCM):",
+      "1. Open the connection settings by pressing Ctrl + Shift + Win (Ctrl + Shift + Cmd on Mac).",
+      "2. Click your name in the upper-right corner to expand the menu.",
+      "3. Go to Settings.",
+      "4. Select the Preferences tab.",
+      "5. Change your password.",
+      "",
+      "Please let me know if you have any questions or concerns.",
+    ].join("\n");
+  }
 
   function pushError(nextError) {
     if (!nextError) return;
@@ -398,6 +455,7 @@ export default function Home() {
       setShowHistory(false);
       setShowInitialPassword(false);
       setVisiblePasswords({});
+      setEmailDraft("");
       setErrorQueue([]);
       setErrorHistory([]);
       pushOk("Logged out.");
@@ -437,6 +495,7 @@ export default function Home() {
       setShareLoading({});
       setOverrides({});
       setVisiblePasswords({});
+      setEmailDraft("");
       setPreviewState("success");
       pushOk(`Loaded tenant ${payload.tenant.name}.`);
     } catch (err) {
@@ -516,6 +575,7 @@ export default function Home() {
       setShareLoading({});
       setOverrides({});
       setVisiblePasswords({});
+      setEmailDraft("");
       setPreviewState("success");
       pushOk(`Loaded tenant ${payload.tenant.name}.`);
       return payload;
@@ -746,6 +806,8 @@ export default function Home() {
       }
 
       const payload = await response.json();
+      const draft = buildUserEmailDraft(payload.results || []);
+      setEmailDraft(draft);
       setUserState("success");
       pushOk(
         `Updated ${payload.results.length} user(s). Connections in group: ${payload.connections}.`
@@ -780,6 +842,23 @@ export default function Home() {
       pushOk("Sharing link copied.");
     } catch (err) {
       pushError("Failed to copy link.");
+    }
+  }
+
+  async function handleCopyEmailDraft() {
+    if (!emailDraft) {
+      pushError("No email draft to copy.");
+      return;
+    }
+    if (!navigator?.clipboard) {
+      pushError("Clipboard unavailable.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(emailDraft);
+      pushOk("Email draft copied.");
+    } catch (err) {
+      pushError("Failed to copy email draft.");
     }
   }
 
@@ -1479,6 +1558,33 @@ export default function Home() {
                   {userState === "loading" ? "Updating..." : "Add Users"}
                 </button>
               </div>
+              {emailDraft && (
+                <div className="email-draft-card">
+                  <div className="email-draft-header">
+                    <div>
+                      <span className="pill ok">Email Draft</span>
+                      <div className="email-draft-title">User handoff message</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={handleCopyEmailDraft}
+                    >
+                      Copy Email
+                    </button>
+                  </div>
+                  <p>
+                    Generated from the tenant name and the users added in this step. Paste
+                    this into your email client and edit if needed.
+                  </p>
+                  <textarea
+                    className="email-draft-output"
+                    value={emailDraft}
+                    onChange={(event) => setEmailDraft(event.target.value)}
+                    spellCheck="false"
+                  />
+                </div>
+              )}
             </div>
           </section>
 

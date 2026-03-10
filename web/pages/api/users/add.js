@@ -7,6 +7,8 @@ const {
   getAuthToken,
 } = require("../../../lib/keeper");
 
+const INITIAL_PASSWORD = "Sailp0!nt";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed." });
@@ -72,7 +74,7 @@ export default async function handler(req, res) {
             `${apiUrl}/api/session/data/mysql/users`,
             {
               username: userEmail,
-              password: "Sailp0!nt",
+              password: INITIAL_PASSWORD,
               attributes: {
                 expired: "true",
                 disabled: "",
@@ -140,7 +142,13 @@ export default async function handler(req, res) {
         );
       }
 
-      results.push({ email: userEmail, status: "ok", created: userCreated });
+      results.push({
+        email: userEmail,
+        fullName,
+        status: "ok",
+        created: userCreated,
+        password: userCreated ? INITIAL_PASSWORD : null,
+      });
     }
 
     res.json({ ok: true, results, connections: groupConnections.length });
