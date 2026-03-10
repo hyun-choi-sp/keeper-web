@@ -4,6 +4,7 @@ const {
   ensureAuthToken,
   queryTenant,
   getInstancePasswords,
+  getImageOsMap,
   buildInstancesPlan,
   parseAwsEnv,
   listConnections,
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
 
     const tenant = await queryTenant(targetName, environment, credentials);
     const instancePasswords = await getInstancePasswords(credentials);
+    const imageOsById = await getImageOsMap(tenant.instanceStack || {}, credentials);
     const existingConnections = await listConnections();
     const sharingProfilesResponse = await listSharingProfiles();
     const apiUrl = getKeeperApiUrl();
@@ -172,7 +174,8 @@ export default async function handler(req, res) {
       tenant.instanceStack || {},
       instancePasswords,
       targetName,
-      existingByName
+      existingByName,
+      imageOsById
     );
 
     res.json({

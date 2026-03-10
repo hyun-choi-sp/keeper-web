@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import Nav from "../components/Nav";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
+const WINDOWS_DEFAULT_PASSWORD = "Sailp0!nt";
+const LINUX_DEFAULT_PASSWORD = "S@ilp0int";
 
 export default function Home() {
   const [keeperApiUrl, setKeeperApiUrl] = useState("");
@@ -36,11 +38,12 @@ export default function Home() {
   const [shareLinks, setShareLinks] = useState({});
   const [shareLoading, setShareLoading] = useState({});
   const [stackPulse, setStackPulse] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState({});
 
   const errorDisplayMs = 10000;
   const errorFadeMs = 1500;
   const errorMaxCount = 10;
-  const initialUserPassword = "Sailp0!nt";
+  const initialUserPassword = WINDOWS_DEFAULT_PASSWORD;
 
   function pushError(nextError) {
     if (!nextError) return;
@@ -166,6 +169,14 @@ export default function Home() {
     return Array.from(seen).sort();
   }, [preview]);
 
+  const instanceByStackKey = useMemo(() => {
+    const entries = preview?.instances || [];
+    return entries.reduce((acc, instance) => {
+      acc[instance.stackKey] = instance;
+      return acc;
+    }, {});
+  }, [preview]);
+
   const hasUpdates = existingInstances.length > 0;
   const provisionLabel = hasUpdates ? "Update Connections" : "Create Connections";
   const provisioningLabel = hasUpdates ? "Updating..." : "Provisioning...";
@@ -188,13 +199,55 @@ export default function Home() {
     });
   }, [preview, overrides]);
 
+  function getDefaultProtocol(instance) {
+    if (!instance) return "";
+    return instance.existingProtocol || instance.protocol || "";
+  }
+
+  function getCurrentProtocol(instance) {
+    return overrides[instance.stackKey]?.protocol || getDefaultProtocol(instance);
+  }
+
+  function getCurrentUsername(instance) {
+    return (
+      overrides[instance.stackKey]?.username ||
+      instance.existingUsername ||
+      instance.username ||
+      ""
+    );
+  }
+
+  function getQuickUsernameValue(instance) {
+    const protocol = getCurrentProtocol(instance);
+    const username = getCurrentUsername(instance).toLowerCase();
+
+    if (protocol === "rdp" && username === "administrator") {
+      return "administrator";
+    }
+    if (protocol === "ssh" && username === "sailpoint") {
+      return "sailpoint";
+    }
+    return "custom";
+  }
+
+  function getDefaultPasswordForProtocol(protocol) {
+    if (protocol === "rdp") return WINDOWS_DEFAULT_PASSWORD;
+    if (protocol === "ssh") return LINUX_DEFAULT_PASSWORD;
+    return "";
+  }
+
   function updateOverride(stackKey, field, value, imageId) {
+    const instance = instanceByStackKey[stackKey];
+    const defaultProtocol = getDefaultProtocol(instance);
     setOverrides((prev) => ({
       ...prev,
       [stackKey]: {
         stackKey,
         imageId,
         ...(prev[stackKey] || {}),
+        ...(field !== "protocol" && defaultProtocol && !prev[stackKey]?.protocol
+          ? { protocol: defaultProtocol }
+          : {}),
         [field]: value,
       },
     }));
@@ -205,6 +258,8 @@ export default function Home() {
   }
 
   function toggleUpdateExisting(stackKey, imageId, enabled) {
+    const instance = instanceByStackKey[stackKey];
+    const defaultProtocol = getDefaultProtocol(instance);
     setOverrides((prev) => {
       const next = { ...prev };
       if (enabled) {
@@ -212,12 +267,69 @@ export default function Home() {
           stackKey,
           imageId,
           ...(prev[stackKey] || {}),
+          ...(defaultProtocol && !prev[stackKey]?.protocol
+            ? { protocol: defaultProtocol }
+            : {}),
           updateExisting: true,
         };
       } else {
         delete next[stackKey];
       }
       return next;
+    });
+  }
+
+  function applyCredentialTemplate(instance, value) {
+    if (value === "custom") return;
+
+    if (value === "administrator") {
+      setOverrides((prev) => ({
+        ...prev,
+        [instance.stackKey]: {
+          stackKey: instance.stackKey,
+          imageId: instance.imageId,
+          ...(prev[instance.stackKey] || {}),
+          protocol: "rdp",
+          username: "administrator",
+          password: WINDOWS_DEFAULT_PASSWORD,
+        },
+      }));
+      return;
+    }
+
+    if (value === "sailpoint") {
+      setOverrides((prev) => ({
+        ...prev,
+        [instance.stackKey]: {
+          stackKey: instance.stackKey,
+          imageId: instance.imageId,
+          ...(prev[instance.stackKey] || {}),
+          protocol: "ssh",
+          username: "sailpoint",
+          password: LINUX_DEFAULT_PASSWORD,
+        },
+      }));
+    }
+  }
+
+  function togglePasswordVisibility(stackKey) {
+    setVisiblePasswords((prev) => ({
+      ...prev,
+      [stackKey]: !prev[stackKey],
+    }));
+  }
+
+  function buildProvisionOverrides() {
+    return Object.values(overrides).map((override) => {
+      const instance = instanceByStackKey[override.stackKey];
+      const defaultProtocol = getDefaultProtocol(instance);
+      if (override.protocol || !defaultProtocol) {
+        return override;
+      }
+      return {
+        ...override,
+        protocol: defaultProtocol,
+      };
     });
   }
 
@@ -285,6 +397,7 @@ export default function Home() {
       setStatusMinimized(false);
       setShowHistory(false);
       setShowInitialPassword(false);
+      setVisiblePasswords({});
       setErrorQueue([]);
       setErrorHistory([]);
       pushOk("Logged out.");
@@ -323,6 +436,7 @@ export default function Home() {
       setShareLinks({});
       setShareLoading({});
       setOverrides({});
+      setVisiblePasswords({});
       setPreviewState("success");
       pushOk(`Loaded tenant ${payload.tenant.name}.`);
     } catch (err) {
@@ -349,7 +463,7 @@ export default function Home() {
         body: JSON.stringify({
           targetName,
           environment,
-          overrides: Object.values(overrides),
+          overrides: buildProvisionOverrides(),
           awsEnv,
         }),
       });
@@ -401,6 +515,7 @@ export default function Home() {
       setShareLinks({});
       setShareLoading({});
       setOverrides({});
+      setVisiblePasswords({});
       setPreviewState("success");
       pushOk(`Loaded tenant ${payload.tenant.name}.`);
       return payload;
@@ -931,7 +1046,12 @@ export default function Home() {
                     <div className="list-item connection-card" key={instance.stackKey}>
                       <div className="card-header">
                         <div>
-                          <h3>{instance.displayName}</h3>
+                          <h3>
+                            {instance.displayName}
+                            {instance.osLabel ? (
+                              <span className="os-label"> ({instance.osLabel})</span>
+                            ) : null}
+                          </h3>
                           <small className="card-meta">{instance.imageId}</small>
                         </div>
                         {instance.exists && (
@@ -1069,6 +1189,7 @@ export default function Home() {
                                 value={
                                   overrides[instance.stackKey]?.protocol ||
                                   instance.existingProtocol ||
+                                  instance.protocol ||
                                   ""
                                 }
                                 onChange={(event) =>
@@ -1087,11 +1208,30 @@ export default function Home() {
                               </select>
                             </label>
                             <label className={updatesBlocked ? "field-disabled" : ""}>
+                              Quick Username
+                              <select
+                                value={getQuickUsernameValue(instance)}
+                                onChange={(event) =>
+                                  applyCredentialTemplate(instance, event.target.value)
+                                }
+                                disabled={updatesBlocked}
+                              >
+                                <option value="custom">Custom</option>
+                                {getCurrentProtocol(instance) === "rdp" ? (
+                                  <option value="administrator">administrator</option>
+                                ) : null}
+                                {getCurrentProtocol(instance) === "ssh" ? (
+                                  <option value="sailpoint">sailpoint</option>
+                                ) : null}
+                              </select>
+                            </label>
+                            <label className={updatesBlocked ? "field-disabled" : ""}>
                               Username
                               <input
                                 value={
                                   overrides[instance.stackKey]?.username ||
                                   instance.existingUsername ||
+                                  instance.username ||
                                   ""
                                 }
                                 onChange={(event) =>
@@ -1113,20 +1253,52 @@ export default function Home() {
                           instance.exists) && (
                           <label className={updatesBlocked ? "field-disabled" : ""}>
                             Password
-                            <input
-                              type="password"
-                              value={overrides[instance.stackKey]?.password || ""}
-                              onChange={(event) =>
-                                updateOverride(
-                                  instance.stackKey,
-                                  "password",
-                                  event.target.value,
-                                  instance.imageId
-                                )
-                              }
-                              autoComplete="new-password"
-                              disabled={updatesBlocked}
-                            />
+                            <span className="password-input-wrap">
+                              <input
+                                type={
+                                  visiblePasswords[instance.stackKey] ? "text" : "password"
+                                }
+                                value={overrides[instance.stackKey]?.password || ""}
+                                onChange={(event) =>
+                                  updateOverride(
+                                    instance.stackKey,
+                                    "password",
+                                    event.target.value,
+                                    instance.imageId
+                                  )
+                                }
+                                autoComplete="new-password"
+                                placeholder={getDefaultPasswordForProtocol(
+                                  getCurrentProtocol(instance)
+                                )}
+                                disabled={updatesBlocked}
+                              />
+                              <button
+                                type="button"
+                                className="icon-button password-toggle"
+                                onClick={() => togglePasswordVisibility(instance.stackKey)}
+                                aria-label={
+                                  visiblePasswords[instance.stackKey]
+                                    ? "Hide password"
+                                    : "Show password"
+                                }
+                                disabled={updatesBlocked}
+                              >
+                                {visiblePasswords[instance.stackKey] ? (
+                                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M3 3l18 18" />
+                                    <path d="M10.6 10.7a3 3 0 0 0 4.2 4.2" />
+                                    <path d="M9.9 5.1A10.9 10.9 0 0 1 12 5c5.2 0 9.3 4 10 7-.3 1.3-1.3 3-2.8 4.4" />
+                                    <path d="M6.2 6.3C4.5 7.5 3.3 9.3 2 12c.7 3 4.8 7 10 7 1.4 0 2.6-.2 3.8-.7" />
+                                  </svg>
+                                ) : (
+                                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                  </svg>
+                                )}
+                              </button>
+                            </span>
                           </label>
                         )}
                       </div>

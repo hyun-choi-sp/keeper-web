@@ -381,6 +381,27 @@ button.secondary {
   background: rgba(15, 23, 42, 0.08);
 }
 
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  padding-right: 38px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+}
+
 .status-text {
   font-size: 13px;
   color: var(--ink-soft);
@@ -424,6 +445,11 @@ button.secondary {
 .list-item h3 {
   font-size: 16px;
   margin-bottom: 6px;
+}
+
+.os-label {
+  color: var(--ink-soft);
+  font-weight: 500;
 }
 
 .list-item small {

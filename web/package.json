@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.845.0",
+    "@aws-sdk/client-ec2": "^3.1005.0",
     "@aws-sdk/client-secrets-manager": "^3.845.0",
     "@aws-sdk/util-dynamodb": "^3.845.0",
     "axios": "^1.10.0",

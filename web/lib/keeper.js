@@ -4,6 +4,7 @@ const {
   ScanCommand,
   UpdateItemCommand,
 } = require("@aws-sdk/client-dynamodb");
+const { EC2Client, DescribeImagesCommand } = require("@aws-sdk/client-ec2");
 const {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -84,11 +85,18 @@ function extractUsername(parameters) {
   );
 }
 
-function buildInstancesPlan(instanceStack, instancePasswords, targetName, existingByName) {
+function buildInstancesPlan(
+  instanceStack,
+  instancePasswords,
+  targetName,
+  existingByName,
+  imageOsById = new Map()
+) {
   const entries = Object.entries(instanceStack || {});
 
   return entries.map(([stackKey, instance]) => {
     const config = instancePasswords[instance.imageId] || null;
+    const osLabel = imageOsById.get(instance.imageId) || null;
     const needsConfig = !config;
     const needsPassword = Boolean(config && config.username && !config.password);
     const connectionName = targetName
@@ -105,7 +113,8 @@ function buildInstancesPlan(instanceStack, instancePasswords, targetName, existi
       publicIp: instance.publicIp,
       publicDns: instance.publicDns,
       publicIntDns: instance.publicIntDns,
-      protocol: config ? config.protocol : null,
+      osLabel,
+      protocol: config ? config.protocol : defaultProtocolForOs(osLabel),
       username: config ? config.username : null,
       needsConfig,
       needsPassword,
@@ -121,6 +130,82 @@ function buildInstancesPlan(instanceStack, instancePasswords, targetName, existi
       assignedUsers: existing?.assignedUsers || [],
     };
   });
+}
+
+function defaultProtocolForOs(osLabel) {
+  if (osLabel === "Windows") return "rdp";
+  if (osLabel === "Linux") return "ssh";
+  return null;
+}
+
+function classifyImageOs(image) {
+  if (!image) return null;
+
+  const haystack = [
+    image.Platform || "",
+    image.PlatformDetails || "",
+    image.Name || "",
+    image.Description || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (haystack.includes("windows")) {
+    return "Windows";
+  }
+
+  const linuxHints = [
+    "linux",
+    "unix",
+    "ubuntu",
+    "debian",
+    "rhel",
+    "red hat",
+    "suse",
+    "centos",
+    "fedora",
+    "rocky",
+    "alma",
+    "amzn",
+    "amazon linux",
+    "oracle linux",
+  ];
+
+  if (linuxHints.some((hint) => haystack.includes(hint))) {
+    return "Linux";
+  }
+
+  return null;
+}
+
+async function getImageOsMap(instanceStack, credentials) {
+  const imageIds = Array.from(
+    new Set(
+      Object.values(instanceStack || {})
+        .map((instance) => instance?.imageId)
+        .filter(Boolean)
+    )
+  );
+
+  if (!imageIds.length) {
+    return new Map();
+  }
+
+  const ec2Client = buildEc2Client(credentials);
+
+  try {
+    const response = await ec2Client.send(new DescribeImagesCommand({ ImageIds: imageIds }));
+    const osByImageId = new Map();
+
+    (response.Images || []).forEach((image) => {
+      osByImageId.set(image.ImageId, classifyImageOs(image));
+    });
+
+    return osByImageId;
+  } catch (error) {
+    console.warn("Failed to resolve AMI platform details", error?.message || error);
+    return new Map();
+  }
 }
 
 async function authenticateToKeeper({ username, password, apiUrl }) {
@@ -345,6 +430,7 @@ module.exports = {
   loadAuthFromRequest,
   ensureAuthToken,
   getInstancePasswords,
+  getImageOsMap,
   buildInstancesPlan,
   authenticateToKeeper,
   setAuthState,
@@ -419,6 +505,19 @@ function buildSecretsManagerClient(credentials) {
 
 function buildDynamoDbClient(credentials) {
   return new DynamoDBClient({
+    region: credentials?.region || defaultRegion,
+    credentials: credentials
+      ? {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+        }
+      : undefined,
+  });
+}
+
+function buildEc2Client(credentials) {
+  return new EC2Client({
     region: credentials?.region || defaultRegion,
     credentials: credentials
       ? {
