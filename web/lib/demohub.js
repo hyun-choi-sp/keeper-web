@@ -2,7 +2,10 @@
 // The backend answers `GET /reservations/?tenant=<name>` server-side, which replaces the
 // full DynamoDB scan the tenant lookup would otherwise need.
 const crypto = require("crypto");
+const fs = require("fs");
 const http = require("http");
+const os = require("os");
+const path = require("path");
 const { spawn } = require("child_process");
 const axios = require("axios");
 
@@ -20,9 +23,51 @@ const refreshSkewMs = 60 * 1000;
 // this is what actually decides when the browser is needed again.
 const refreshTokenMs = 30 * 24 * 60 * 60 * 1000;
 
-// ponytail: tokens live in this process only, so a restart costs one (usually silent)
-// click. Persisting the 30-day refresh token would need mode 0600 and a gitignore entry.
-let session = null;
+// Tokens hang off globalThis because Next re-evaluates this module on every edit in dev,
+// which would otherwise sign the user out silently and quietly slow every lookup back down.
+const store = globalThis.__keeperDemohubSession || (globalThis.__keeperDemohubSession = {});
+
+// Only the refresh token is kept on disk, the same way the AWS CLI caches its SSO token, so
+// a server restart does not force a new browser round-trip. Outside the repo, mode 0600.
+const authFile =
+  process.env.KEEPER_DEMOHUB_AUTH_FILE || path.join(os.homedir(), ".keeper", "demohub.json");
+
+function persist(session, file = authFile) {
+  if (!session?.refreshToken) return;
+
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        refreshToken: session.refreshToken,
+        sessionExpiresAt: session.sessionExpiresAt,
+      })
+    );
+    fs.chmodSync(file, 0o600); // writeFileSync only applies mode when creating the file
+  } catch (error) {
+    console.warn("Could not save the DemoHub session", error?.message || error);
+  }
+}
+
+function loadPersisted(file = authFile) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (saved?.refreshToken && saved.sessionExpiresAt > Date.now()) return saved;
+  } catch (error) {
+    // no usable file
+  }
+
+  return null;
+}
+
+function forgetPersisted(file = authFile) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch (error) {
+    // nothing to clean up
+  }
+}
 
 function base64url(buffer) {
   return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -125,7 +170,7 @@ async function postToken(form) {
 
 function storeTokens(tokens, previous) {
   const claims = decodeClaims(tokens.id_token);
-  session = {
+  store.session = {
     idToken: tokens.id_token,
     // Cognito does not return a new refresh token when refreshing, so carry the original
     // one and the horizon it started.
@@ -136,7 +181,8 @@ function storeTokens(tokens, previous) {
     sessionExpiresAt: previous?.sessionExpiresAt || Date.now() + refreshTokenMs,
   };
 
-  return session;
+  persist(store.session);
+  return store.session;
 }
 
 async function signIn() {
@@ -160,14 +206,18 @@ async function signIn() {
 }
 
 async function getIdToken() {
-  if (!session) return null;
-  if (Date.now() < session.expiresAt - refreshSkewMs) return session.idToken;
-  if (!session.refreshToken) {
-    session = null;
+  // Falling back to the saved refresh token is what makes a restart look "already signed in".
+  const previous = store.session || loadPersisted();
+  if (!previous) return null;
+  if (previous.idToken && Date.now() < previous.expiresAt - refreshSkewMs) {
+    return previous.idToken;
+  }
+  if (!previous.refreshToken) {
+    store.session = null;
+    forgetPersisted();
     return null;
   }
 
-  const previous = session;
   try {
     const tokens = await postToken({
       grant_type: "refresh_token",
@@ -176,7 +226,8 @@ async function getIdToken() {
     });
     return storeTokens(tokens, previous).idToken;
   } catch (error) {
-    session = null;
+    store.session = null;
+    forgetPersisted();
     return null;
   }
 }
@@ -188,9 +239,9 @@ async function sessionState() {
 
   return {
     signedIn: Boolean(idToken),
-    user: session?.user || null,
-    role: session?.role || null,
-    expiration: session ? new Date(session.sessionExpiresAt).toISOString() : null,
+    user: store.session?.user || null,
+    role: store.session?.role || null,
+    expiration: store.session ? new Date(store.session.sessionExpiresAt).toISOString() : null,
   };
 }
 
@@ -210,7 +261,7 @@ async function findReservation(tenantName) {
     params: { tenant: tenantName, status: "PROVISIONED" },
     headers: {
       Authorization: `Bearer ${idToken}`,
-      ...(session.role ? { role: session.role } : {}),
+      ...(store.session.role ? { role: store.session.role } : {}),
       // Several endpoints 403 without these even though /profile does not need them.
       Origin: appOrigin,
       Referer: `${appOrigin}/`,
@@ -236,4 +287,6 @@ module.exports = {
   authorizeUrl,
   redirectUri,
   storeTokens,
+  persist,
+  loadPersisted,
 };

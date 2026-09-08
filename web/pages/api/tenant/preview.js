@@ -32,11 +32,25 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid AWS env format." });
     }
 
+    const startedAt = Date.now();
     const tenant = await queryTenant(targetName, environment, credentials);
-    const instancePasswords = await getInstancePasswords(credentials);
-    const imageOsById = await getImageOsMap(tenant.instanceStack || {}, credentials);
-    const existingConnections = await listConnections();
-    const sharingProfilesResponse = await listSharingProfiles();
+    const lookupMs = Date.now() - startedAt;
+
+    // Everything below needs only the tenant record, so fan out rather than waiting in turn.
+    const [
+      instancePasswords,
+      imageOsById,
+      existingConnections,
+      sharingProfilesResponse,
+      groupIdentifier,
+    ] = await Promise.all([
+      getInstancePasswords(credentials),
+      getImageOsMap(tenant.instanceStack || {}, credentials),
+      listConnections(),
+      listSharingProfiles(),
+      getGroupIdentifier(targetName),
+    ]);
+
     const apiUrl = getKeeperApiUrl();
     const authToken = getAuthToken();
     const headers = {
@@ -48,34 +62,35 @@ export default async function handler(req, res) {
       ([_, conn]) => conn?.name && conn.name.startsWith(`${targetName} - `)
     );
 
-    const detailedConnections = await Promise.all(
-      matchingEntries.map(([id, conn]) =>
-        axios
-          .get(`${apiUrl}/api/session/data/mysql/connections/${id}`, { headers })
-          .then((response) => ({ id, data: response.data, fallback: conn }))
-          .catch(() => ({ id, data: null, fallback: conn }))
-      )
-    );
-
-    const historyResults = await Promise.all(
-      matchingEntries.map(([id]) =>
-        axios
-          .get(`${apiUrl}/api/session/data/mysql/connections/${id}/history`, { headers })
-          .then((response) => ({ id, data: response.data }))
-          .catch(() => ({ id, data: [] }))
-      )
-    );
-
-    const permissionResults = await Promise.all(
-      matchingEntries.map(([id]) =>
-        axios
-          .get(`${apiUrl}/api/session/data/mysql/connections/${id}/permissions`, {
-            headers,
-          })
-          .then((response) => ({ id, data: response.data }))
-          .catch(() => ({ id, data: null }))
-      )
-    );
+    // One fan-out for all three per-connection reads instead of three waves.
+    const [detailedConnections, historyResults, permissionResults] = await Promise.all([
+      Promise.all(
+        matchingEntries.map(([id, conn]) =>
+          axios
+            .get(`${apiUrl}/api/session/data/mysql/connections/${id}`, { headers })
+            .then((response) => ({ id, data: response.data, fallback: conn }))
+            .catch(() => ({ id, data: null, fallback: conn }))
+        )
+      ),
+      Promise.all(
+        matchingEntries.map(([id]) =>
+          axios
+            .get(`${apiUrl}/api/session/data/mysql/connections/${id}/history`, { headers })
+            .then((response) => ({ id, data: response.data }))
+            .catch(() => ({ id, data: [] }))
+        )
+      ),
+      Promise.all(
+        matchingEntries.map(([id]) =>
+          axios
+            .get(`${apiUrl}/api/session/data/mysql/connections/${id}/permissions`, {
+              headers,
+            })
+            .then((response) => ({ id, data: response.data }))
+            .catch(() => ({ id, data: null }))
+        )
+      ),
+    ]);
 
     const extractUsers = (permissions) => {
       if (!permissions || typeof permissions !== "object") return [];
@@ -169,7 +184,6 @@ export default async function handler(req, res) {
         ];
       })
     );
-    const groupIdentifier = await getGroupIdentifier(targetName);
     const plan = buildInstancesPlan(
       tenant.instanceStack || {},
       instancePasswords,
@@ -182,7 +196,9 @@ export default async function handler(req, res) {
       tenant: {
         name: tenant.name,
         guid: tenant.GUID,
+        lookupSource: tenant.lookupSource || "table-scan",
       },
+      timings: { lookupMs, totalMs: Date.now() - startedAt },
       groupIdentifier,
       instances: plan,
     });

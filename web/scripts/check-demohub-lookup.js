@@ -2,6 +2,15 @@
 // Usage: cd web && node scripts/check-demohub-lookup.js
 const assert = require("assert");
 const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+// Point the module at a throwaway file before loading it: signing in during the check must
+// never overwrite the real saved session.
+const savedFile = path.join(os.tmpdir(), `keeper-demohub-check-${process.pid}.json`);
+process.env.KEEPER_DEMOHUB_AUTH_FILE = savedFile;
+
 const {
   createPkce,
   pickRole,
@@ -10,6 +19,8 @@ const {
   redirectUri,
   storeTokens,
   sessionState,
+  persist,
+  loadPersisted,
 } = require("../lib/demohub");
 
 // PKCE: the challenge must be the S256 digest of the verifier (RFC 7636 test vector).
@@ -99,6 +110,34 @@ assert.strictEqual(
   started25DaysAgo.sessionExpiresAt,
   "refreshing must not move the session horizon"
 );
+
+// The saved session must be readable back, must never contain the id token, and must not be
+// left world-readable.
+try {
+  persist(
+    {
+      idToken: "must-not-be-written",
+      refreshToken: "refresh-token-1",
+      sessionExpiresAt: started25DaysAgo.sessionExpiresAt,
+    },
+    savedFile
+  );
+
+  const raw = fs.readFileSync(savedFile, "utf8");
+  assert.ok(!raw.includes("must-not-be-written"), "the id token must not be persisted");
+  assert.strictEqual(fs.statSync(savedFile).mode & 0o777, 0o600, "saved session is not 0600");
+
+  const restored = loadPersisted(savedFile);
+  assert.strictEqual(restored.refreshToken, "refresh-token-1");
+  assert.strictEqual(restored.sessionExpiresAt, started25DaysAgo.sessionExpiresAt);
+
+  // An expired horizon must not come back as a usable session.
+  persist({ refreshToken: "old", sessionExpiresAt: Date.now() - 1000 }, savedFile);
+  assert.strictEqual(loadPersisted(savedFile), null, "an expired session must not be restored");
+  assert.strictEqual(loadPersisted(`${savedFile}.missing`), null);
+} finally {
+  fs.rmSync(savedFile, { force: true });
+}
 
 sessionState().then((state) => {
   assert.strictEqual(state.signedIn, true);

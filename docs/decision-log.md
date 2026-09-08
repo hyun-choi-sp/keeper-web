@@ -33,7 +33,7 @@ If DemoHub ever adds a `name` index themselves, `queryTenant()` can drop to a tw
 `Query` + `GetItem` and the DemoHub sign-in becomes optional.
 **Related Files:** `web/lib/keeper.js`, `docs/plans/2026-09-08-demohub-sso-tenant-lookup.md`
 
-## ADR-003: DemoHub Tokens Live in Memory Only
+## ADR-003: DemoHub Tokens Live in Memory Only — superseded by ADR-007
 
 **Date:** 2026-09-08
 **Decision:** The id token and the 30-day refresh token are held in a module-level variable
@@ -85,3 +85,19 @@ sign-in prompt.
 **Consequence:** Sign-in is only available after Step 1, which matches how the rest of the
 app already behaves.
 **Related Files:** `web/pages/api/aws/session.js`, `web/pages/api/demohub/session.js`
+
+## ADR-007: Persist the DemoHub Refresh Token Outside the Repo
+
+**Date:** 2026-09-08
+**Decision:** Supersedes ADR-003. The refresh token and its horizon are written to
+`~/.keeper/demohub.json` with mode 0600 (directory 0700). The id token is never written.
+`KEEPER_DEMOHUB_AUTH_FILE` overrides the path, which the offline check uses so it cannot
+clobber a real session.
+**Reason:** Memory-only meant every dev-server restart silently dropped the session and the
+tenant lookup quietly fell back to the table scan. That is the asymmetry against AWS, which
+reports "Ready" after a restart precisely because the AWS CLI caches its SSO token on disk.
+This stores the same kind of credential the same machine already keeps.
+**Consequence:** A 30-day credential now exists at rest. It is deleted automatically when a
+refresh fails, and it lives outside the repository so it cannot be committed by accident.
+Signing in becomes a monthly event rather than a per-restart one.
+**Related Files:** `web/lib/demohub.js`, `web/scripts/check-demohub-lookup.js`

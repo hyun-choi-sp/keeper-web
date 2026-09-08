@@ -403,7 +403,7 @@ async function queryTenant(targetName, environment, credentials) {
   if (isProductionEnvironment(environment)) {
     try {
       const reservation = await findReservation(targetName);
-      if (reservation) return reservation;
+      if (reservation) return { ...reservation, lookupSource: "demohub" };
     } catch (error) {
       console.warn("DemoHub lookup failed, scanning DynamoDB instead", error?.message || error);
     }
@@ -437,7 +437,7 @@ async function queryTenant(targetName, environment, credentials) {
     throw error;
   }
 
-  return tenant;
+  return { ...tenant, lookupSource: "table-scan" };
 }
 
 module.exports = {
@@ -506,41 +506,53 @@ function parseAwsEnv(envText) {
   return null;
 }
 
+// A fresh client re-resolves SSO credentials on its first call, which costs about 1.5s.
+// Clients on the default chain are therefore reused; the SDK refreshes them when they
+// expire. Pasted credentials stay per-call because they can differ between requests.
+const defaultClients = {};
+
+function reuseDefaultClient(key, create) {
+  defaultClients[key] = defaultClients[key] || create();
+  return defaultClients[key];
+}
+
+function explicitCredentials(credentials) {
+  return {
+    accessKeyId: credentials.accessKeyId,
+    secretAccessKey: credentials.secretAccessKey,
+    sessionToken: credentials.sessionToken,
+  };
+}
+
 function buildSecretsManagerClient(credentials) {
+  if (!credentials) {
+    return reuseDefaultClient("secrets", () => new SecretsManagerClient({ region: defaultRegion }));
+  }
+
   return new SecretsManagerClient({
-    region: credentials?.region || defaultRegion,
-    credentials: credentials
-      ? {
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-        }
-      : undefined,
+    region: credentials.region || defaultRegion,
+    credentials: explicitCredentials(credentials),
   });
 }
 
 function buildDynamoDbClient(credentials) {
+  if (!credentials) {
+    return reuseDefaultClient("dynamodb", () => new DynamoDBClient({ region: defaultRegion }));
+  }
+
   return new DynamoDBClient({
-    region: credentials?.region || defaultRegion,
-    credentials: credentials
-      ? {
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-        }
-      : undefined,
+    region: credentials.region || defaultRegion,
+    credentials: explicitCredentials(credentials),
   });
 }
 
 function buildEc2Client(credentials) {
+  if (!credentials) {
+    return reuseDefaultClient("ec2", () => new EC2Client({ region: defaultRegion }));
+  }
+
   return new EC2Client({
-    region: credentials?.region || defaultRegion,
-    credentials: credentials
-      ? {
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-        }
-      : undefined,
+    region: credentials.region || defaultRegion,
+    credentials: explicitCredentials(credentials),
   });
 }

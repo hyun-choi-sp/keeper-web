@@ -513,14 +513,28 @@ export default function Home() {
     return payload;
   }
 
-  // Both providers federate to the same Azure AD, so the second browser step is usually
+  // Asks the server first so a provider that is still signed in never opens a browser.
+  async function ensureSignedIn(provider) {
+    const status = await fetch(`${API_BASE}/api/${provider}/session`, {
+      credentials: "include",
+    }).then((res) => res.json());
+
+    if (status.signedIn) return { session: status, reused: true };
+    return { session: await signInTo(provider), reused: false };
+  }
+
+  // Both providers federate to the same Azure AD, so a second browser step is usually
   // silent. They stay separate calls because only AWS is required to use the app.
   async function handleSignIn() {
     try {
       setSignInState("aws");
-      const aws = await signInTo("aws");
-      setAwsSession(aws);
-      pushOk(`AWS SSO connected (${aws.profile}).`);
+      const aws = await ensureSignedIn("aws");
+      setAwsSession(aws.session);
+      pushOk(
+        aws.reused
+          ? `AWS session already active (${aws.session.profile}).`
+          : `AWS SSO connected (${aws.session.profile}).`
+      );
     } catch (err) {
       pushError(err.message);
       setSignInState("idle");
@@ -529,13 +543,37 @@ export default function Home() {
 
     try {
       setSignInState("demohub");
-      const demohub = await signInTo("demohub");
-      setDemohubSession(demohub);
-      pushOk(`DemoHub connected (${demohub.user}).`);
+      const demohub = await ensureSignedIn("demohub");
+      setDemohubSession(demohub.session);
+      pushOk(
+        demohub.reused
+          ? `DemoHub session already active (${demohub.session.user}).`
+          : `DemoHub connected (${demohub.session.user}).`
+      );
     } catch (err) {
       pushError(err.message);
     } finally {
       setSignInState("idle");
+    }
+  }
+
+  // Says what actually happened: which GUID came back, how it was found and how long it
+  // took, so a silent fall back to the table scan is visible instead of just feeling slow.
+  function announcePreview(payload) {
+    const { tenant, timings } = payload;
+    const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
+    const viaDemohub = tenant.lookupSource === "demohub";
+
+    pushOk(
+      `${tenant.name} • GUID ${tenant.guid} • found via ${
+        viaDemohub ? "DemoHub" : "table scan"
+      } in ${seconds(timings.lookupMs)} • ${payload.instances.length} instances in ${seconds(
+        timings.totalMs
+      )}`
+    );
+
+    if (!viaDemohub) {
+      pushError("No DemoHub session, so the whole table was scanned. Sign In to speed this up.");
     }
   }
 
@@ -544,6 +582,7 @@ export default function Home() {
     setPreviewState("loading");
     setError("");
     setMessage("");
+    pushOk(`Looking up ${targetName}...`);
 
     try {
       const response = await fetch(`${API_BASE}/api/tenant/preview`, {
@@ -571,7 +610,7 @@ export default function Home() {
       setVisiblePasswords({});
       setEmailDraft("");
       setPreviewState("success");
-      pushOk(`Loaded tenant ${payload.tenant.name}.`);
+      announcePreview(payload);
     } catch (err) {
       setPreviewState("error");
       pushError(err.message);
@@ -651,7 +690,7 @@ export default function Home() {
       setVisiblePasswords({});
       setEmailDraft("");
       setPreviewState("success");
-      pushOk(`Loaded tenant ${payload.tenant.name}.`);
+      announcePreview(payload);
       return payload;
     } catch (err) {
       setPreviewState("error");
@@ -1185,10 +1224,10 @@ export default function Home() {
                     disabled={signInState !== "idle"}
                   >
                     {signInState === "aws"
-                      ? "Waiting for AWS browser..."
+                      ? "Checking AWS..."
                       : signInState === "demohub"
-                      ? "Waiting for DemoHub browser..."
-                      : "Sign In (AWS + DemoHub)"}
+                      ? "Checking DemoHub..."
+                      : "Sign In"}
                   </button>
                 </div>
               </div>
@@ -1216,6 +1255,11 @@ export default function Home() {
               <div className="status">
                 <strong>Tenant:</strong> {preview.tenant.name}
                 {preview.tenant.guid ? ` • ${preview.tenant.guid}` : ""}
+                {preview.timings
+                  ? ` • via ${
+                      preview.tenant.lookupSource === "demohub" ? "DemoHub" : "table scan"
+                    } in ${(preview.timings.lookupMs / 1000).toFixed(1)}s`
+                  : ""}
               </div>
             )}
           </section>
