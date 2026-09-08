@@ -22,6 +22,8 @@ export default function Home() {
   const [groupIdentifier, setGroupIdentifier] = useState("");
   const [previewGroupIdentifier, setPreviewGroupIdentifier] = useState("");
   const [awsEnv, setAwsEnv] = useState("");
+  const [awsSession, setAwsSession] = useState(null);
+  const [awsLoginState, setAwsLoginState] = useState("idle");
   const [userEmails, setUserEmails] = useState("");
   const [deleteState, setDeleteState] = useState("idle");
   const [deletedConnections, setDeletedConnections] = useState({});
@@ -46,15 +48,6 @@ export default function Home() {
   const errorMaxCount = 10;
   const initialUserPassword = WINDOWS_DEFAULT_PASSWORD;
 
-  function toDisplayName(value) {
-    if (!value) return "Customer";
-    return value
-      .split(/[.\-_@\s]+/)
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(" ");
-  }
-
   function buildUserCredentialLines(results) {
     return results
       .filter((item) => item?.status === "ok" && item.email)
@@ -65,6 +58,26 @@ export default function Home() {
       );
   }
 
+  function buildVmSummaryLines() {
+    const instances = (preview?.instances || []).filter(
+      (instance) =>
+        instance.exists &&
+        (instance.existingProtocol || instance.protocol) &&
+        (instance.existingUsername || instance.username) &&
+        (instance.displayName || instance.connectionName)
+    );
+
+    if (!instances.length) return [];
+
+    return instances.flatMap((instance) => [
+      `- VM: ${instance.displayName || instance.stackKey || "Not available"}`,
+      `  Connection: ${instance.connectionName || "Not available"}`,
+      `  Public IP: ${instance.publicIp || "Not available"}`,
+      `  DNS (FQDN): ${instance.publicDns || instance.publicIntDns || "Not available"}`,
+      "",
+    ]);
+  }
+
   function buildUserEmailDraft(results) {
     const successfulResults = results.filter((item) => item?.status === "ok" && item.email);
     if (!successfulResults.length) return "";
@@ -72,6 +85,7 @@ export default function Home() {
     const customerName = "Customer";
     const environmentName = preview?.tenant?.name || targetName || "N/A";
     const credentialLines = buildUserCredentialLines(successfulResults);
+    const vmSummaryLines = buildVmSummaryLines();
     const hasExistingUsers = successfulResults.some((item) => !item.created);
     const passwordGuidance = hasExistingUsers
       ? "For any existing Keeper user, keep the current password. For any newly created user, the temporary password is listed above and must be changed at first sign-in."
@@ -85,8 +99,10 @@ export default function Home() {
       `Environment: ${environmentName}`,
       "Remote access link: https://poc-access.sailpoint.com/",
       "",
+      "User access",
       ...credentialLines,
       "",
+      ...(vmSummaryLines.length ? ["Configured VMs", ...vmSummaryLines] : []),
       "Please share this information with the end user(s), as we do not send these credentials directly.",
       passwordGuidance,
       "If a user signs in with a temporary password, please ask them to change it immediately after the first login.",
@@ -192,6 +208,17 @@ export default function Home() {
       setErrorQueue((prev) => prev.filter((item) => item.id !== id));
     }, errorDisplayMs + errorFadeMs);
   }
+
+  function loadAwsSession() {
+    return fetch(`${API_BASE}/api/aws/session`, { credentials: "include" })
+      .then((res) => res.json())
+      .then(setAwsSession)
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    loadAwsSession();
+  }, []);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config`, { credentials: "include" })
@@ -462,6 +489,28 @@ export default function Home() {
     } catch (err) {
       setLoginState("error");
       pushError(err.message);
+    }
+  }
+
+  async function handleAwsLogin() {
+    setAwsLoginState("loading");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/aws/session`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "AWS SSO sign-in failed.");
+      }
+
+      setAwsSession(payload);
+      pushOk(`AWS SSO connected (${payload.profile}).`);
+    } catch (err) {
+      pushError(err.message);
+    } finally {
+      setAwsLoginState("idle");
     }
   }
 
@@ -862,6 +911,11 @@ export default function Home() {
     }
   }
 
+  const liveToastsVisible = !statusMinimized && errorQueue.length > 0;
+  const historyVisible =
+    !statusMinimized && errorQueue.length === 0 && showHistory && errorHistory.length > 0;
+  const alertsVisible = liveToastsVisible || historyVisible;
+
   return (
     <main>
       <Nav />
@@ -1081,8 +1135,31 @@ export default function Home() {
                   </select>
                 </label>
               </div>
+              <div className="status">
+                <span className={`pill ${awsSession?.signedIn ? "ok" : "warn"}`}>
+                  {awsSession?.signedIn ? "AWS Ready" : "AWS Sign-in Needed"}
+                </span>{" "}
+                {awsSession?.profile || "AWS_PROFILE not set"}
+                {awsSession?.expiration
+                  ? ` • expires ${new Date(awsSession.expiration).toLocaleString(undefined, {
+                      timeZoneName: "short",
+                    })}`
+                  : ""}
+                <div className="button-row">
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={handleAwsLogin}
+                    disabled={awsLoginState === "loading"}
+                  >
+                    {awsLoginState === "loading"
+                      ? "Waiting for browser..."
+                      : "Sign in with AWS SSO"}
+                  </button>
+                </div>
+              </div>
               <label>
-                AWS Session Env (paste export block here)
+                AWS Session Env (optional — leave empty to use the SSO profile)
                 <textarea
                   value={awsEnv}
                   onChange={(event) => setAwsEnv(event.target.value)}
@@ -1589,7 +1666,7 @@ export default function Home() {
           </section>
 
           <div className="toast-shell">
-            {!statusMinimized && errorQueue.length > 0 && (
+            {liveToastsVisible && (
               <div className={`toast-stack${stackPulse ? " pulse" : ""}`} aria-live="polite">
                 {errorQueue.map((item) => (
                   <div
@@ -1608,42 +1685,33 @@ export default function Home() {
                 ))}
               </div>
             )}
-            {!statusMinimized &&
-              errorQueue.length === 0 &&
-              showHistory &&
-              errorHistory.length > 0 && (
-                <div className="toast-stack" aria-live="off">
-                  {errorHistory.map((item) => (
-                    <div key={item.id} className={`toast-card${item.kind === "ok" ? " ok" : ""}`}>
-                      <span className={`pill ${item.kind === "ok" ? "ok" : "bad"}`}>
-                        {item.kind === "ok" ? "OK" : "Error"}
-                      </span>
-                      <div className="error-message" title={item.message}>
-                        {item.message}
-                      </div>
+            {historyVisible && (
+              <div className="toast-stack" aria-live="off">
+                {errorHistory.map((item) => (
+                  <div key={item.id} className={`toast-card${item.kind === "ok" ? " ok" : ""}`}>
+                    <span className={`pill ${item.kind === "ok" ? "ok" : "bad"}`}>
+                      {item.kind === "ok" ? "OK" : "Error"}
+                    </span>
+                    <div className="error-message" title={item.message}>
+                      {item.message}
                     </div>
-                  ))}
-                </div>
-              )}
+                  </div>
+                ))}
+              </div>
+            )}
             <button
               type="button"
               className={`status-toggle${errorHistory.length > 0 ? " has-alert" : ""}`}
-              onClick={() =>
-                setStatusMinimized((prev) => {
-                  const next = !prev;
-                  if (!next) {
-                    setShowHistory(true);
-                  }
-                  return next;
-                })
-              }
-              aria-label={statusMinimized ? "Show alerts" : "Hide alerts"}
+              onClick={() => {
+                setStatusMinimized(alertsVisible);
+                setShowHistory(!alertsVisible);
+              }}
+              aria-expanded={alertsVisible}
+              aria-label={alertsVisible ? "Hide alerts" : "Show alerts"}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5v3.1l-1.6 2.9a1 1 0 0 0 .9 1.5h14.4a1 1 0 0 0 .9-1.5l-1.6-2.9V9a6.5 6.5 0 0 0-6.5-6.5z" />
-                <path d="M9.2 18.5a2.8 2.8 0 0 0 5.6 0" />
-                <path d="M5.2 8.2c.4-2.6 2.4-4.7 5-5.2" />
-                <path d="M18.8 8.2c-.4-2.6-2.4-4.7-5-5.2" />
+                <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.7 21a2 2 0 0 1-3.4 0" />
               </svg>
               {errorHistory.length > 0 && (
                 <span className="status-badge danger">

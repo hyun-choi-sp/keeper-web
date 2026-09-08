@@ -33,12 +33,12 @@ Open `http://localhost:3000`.
 - Keeper Manager: tenant preview, connection create/update, user access management
 - Existing connection checks and optional delete (per connection or whole group)
 - Sharing link generation (requires an active session)
-- AWS session env paste (for temporary credentials)
+- AWS SSO sign-in button, with env paste as a fallback for temporary credentials
 - HAR Inspector: upload HAR, flow summary, filters, waterfall, issue hints, DQL suggestions
 
 ## Notes
 - Keeper login credentials are entered in the UI and stored in memory for the session.
 - Add Users uses a fixed initial password (visible in the UI with copy action).
 - `NEXT_PUBLIC_API_BASE` is optional (defaults to same origin).
-- For AWS access, you can paste the `export AWS_*` block into the Step 2 field instead of exporting in the shell.
+- For AWS access, set `AWS_PROFILE` in `web/.env.local` and use the Step 2 sign-in button (it runs `aws sso login` for that profile). Pasting an `export AWS_*` block still works as an override.
 - Changes are tracked in `CHANGELOG.md`.
