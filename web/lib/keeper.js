@@ -226,6 +226,36 @@ async function authenticateToKeeper({ username, password, apiUrl }) {
   return response.data.authToken;
 }
 
+// Guacamole accepts a token on its own and re-authenticates that session, which is what lets
+// an existing login be recognised without the password. It may hand back a different token.
+async function reauthenticateToKeeper(token, apiUrl) {
+  const response = await axios.post(
+    `${apiUrl}/api/tokens`,
+    `token=${encodeURIComponent(token)}`,
+    { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+  );
+
+  return {
+    authToken: response.data.authToken,
+    username: response.data.username,
+  };
+}
+
+// What the caller should report and re-issue after a re-authentication attempt. Guacamole may
+// rotate the token, so the response wins over whatever the cookie held.
+function keeperSessionUpdate(cookieToken, result) {
+  if (!cookieToken || !result?.authToken) {
+    return { signedIn: false, username: null, token: null, refreshCookie: false };
+  }
+
+  return {
+    signedIn: true,
+    username: result.username || null,
+    token: result.authToken,
+    refreshCookie: result.authToken !== cookieToken,
+  };
+}
+
 function setAuthState({ token, apiUrl, username }) {
   keeperAuthToken = token;
   keeperApiUrl = apiUrl || keeperApiUrl;
@@ -449,6 +479,9 @@ module.exports = {
   getImageOsMap,
   buildInstancesPlan,
   authenticateToKeeper,
+  reauthenticateToKeeper,
+  keeperSessionUpdate,
+  parseCookies,
   setAuthState,
   clearAuthState,
   getConfigState,

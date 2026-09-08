@@ -13,7 +13,9 @@ export default function Home() {
   const [environment, setEnvironment] = useState("production");
   const [loginState, setLoginState] = useState("idle");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [showLoginForm, setShowLoginForm] = useState(true);
+  // Only true when the user explicitly wants to edit credentials; an unauthenticated session
+  // shows the form on its own.
+  const [showLoginForm, setShowLoginForm] = useState(false);
   const [previewState, setPreviewState] = useState("idle");
   const [provisionState, setProvisionState] = useState("idle");
   const [userState, setUserState] = useState("idle");
@@ -237,6 +239,8 @@ export default function Home() {
         setKeeperUsername(data.keeperUsername || "");
         setTargetName(data.targetName || "");
         setEnvironment(data.environment || "production");
+        // The token cookie outlives both a refresh and a server restart.
+        setIsAuthenticated(Boolean(data.signedIn));
       })
       .catch(() => {});
   }, []);
@@ -473,7 +477,7 @@ export default function Home() {
       });
       setLoginState("idle");
       setIsAuthenticated(false);
-      setShowLoginForm(true);
+      setShowLoginForm(false);
       setPreview(null);
       setGroupIdentifier("");
       setPreviewGroupIdentifier("");
@@ -1036,7 +1040,7 @@ export default function Home() {
                 <div className="step-title">Tenant Preview</div>
               </div>
               <div className="step-detail">
-                {previewState === "success" ? "Tenant data loaded" : "Query DynamoDB"}
+                {previewState === "success" ? "Tenant data loaded" : "Look up the tenant"}
               </div>
             </div>
             <div
@@ -1157,7 +1161,11 @@ export default function Home() {
                   </div>
                   <div className="button-row">
                     <button className="primary" type="submit">
-                      {loginState === "loading" ? "Logging in..." : "Login"}
+                      {loginState === "loading"
+                        ? "Logging in..."
+                        : isAuthenticated
+                        ? "Re-login"
+                        : "Login"}
                     </button>
                     <button
                       className="secondary"
@@ -1169,6 +1177,18 @@ export default function Home() {
                     >
                       Clear Password
                     </button>
+                    {isAuthenticated && (
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          setKeeperPassword("");
+                          setShowLoginForm(false);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                 </form>
               )}
