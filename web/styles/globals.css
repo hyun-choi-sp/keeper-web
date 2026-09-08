@@ -887,6 +887,8 @@ button.secondary {
   border: none;
   background: #fff;
   border-radius: 999px;
+  /* the global button rule adds 12px 20px padding, which crushes the icon to a sliver */
+  padding: 0;
   width: 44px;
   height: 44px;
   display: inline-flex;
@@ -901,11 +903,8 @@ button.secondary {
 .status-toggle svg {
   width: 20px;
   height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  fill: currentColor;
+  stroke: none;
 }
 
 .status-toggle.has-alert {
