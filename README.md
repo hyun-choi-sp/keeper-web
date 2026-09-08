@@ -33,7 +33,7 @@ Open `http://localhost:3000`.
 - Keeper Manager: tenant preview, connection create/update, user access management
 - Existing connection checks and optional delete (per connection or whole group)
 - Sharing link generation (requires an active session)
-- AWS SSO sign-in button, with env paste as a fallback for temporary credentials
+- One sign-in button for AWS SSO and DemoHub, with env paste as a fallback for temporary credentials
 - HAR Inspector: upload HAR, flow summary, filters, waterfall, issue hints, DQL suggestions
 
 ## Notes
@@ -41,4 +41,5 @@ Open `http://localhost:3000`.
 - Add Users uses a fixed initial password (visible in the UI with copy action).
 - `NEXT_PUBLIC_API_BASE` is optional (defaults to same origin).
 - For AWS access, set `AWS_PROFILE` in `web/.env.local` and use the Step 2 sign-in button (it runs `aws sso login` for that profile). Pasting an `export AWS_*` block still works as an override.
-- Changes are tracked in `CHANGELOG.md`.
+- The same button then signs in to DemoHub, which resolves the tenant name in one API call instead of scanning the whole reservations table. Without it the app still works, just slower. It needs port 4200 free during sign-in, and the session is kept in memory only.
+- Changes are tracked in `CHANGELOG.md`. Findings and design decisions live in `docs/lessons-learned.md` and `docs/decision-log.md`.

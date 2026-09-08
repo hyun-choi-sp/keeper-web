@@ -23,7 +23,8 @@ export default function Home() {
   const [previewGroupIdentifier, setPreviewGroupIdentifier] = useState("");
   const [awsEnv, setAwsEnv] = useState("");
   const [awsSession, setAwsSession] = useState(null);
-  const [awsLoginState, setAwsLoginState] = useState("idle");
+  const [demohubSession, setDemohubSession] = useState(null);
+  const [signInState, setSignInState] = useState("idle");
   const [userEmails, setUserEmails] = useState("");
   const [deleteState, setDeleteState] = useState("idle");
   const [deletedConnections, setDeletedConnections] = useState({});
@@ -209,15 +210,23 @@ export default function Home() {
     }, errorDisplayMs + errorFadeMs);
   }
 
-  function loadAwsSession() {
-    return fetch(`${API_BASE}/api/aws/session`, { credentials: "include" })
+  function formatExpiry(value) {
+    return new Date(value).toLocaleString(undefined, { timeZoneName: "short" });
+  }
+
+  function loadSessions() {
+    fetch(`${API_BASE}/api/aws/session`, { credentials: "include" })
       .then((res) => res.json())
       .then(setAwsSession)
+      .catch(() => {});
+    fetch(`${API_BASE}/api/demohub/session`, { credentials: "include" })
+      .then((res) => res.json())
+      .then(setDemohubSession)
       .catch(() => {});
   }
 
   useEffect(() => {
-    loadAwsSession();
+    loadSessions();
   }, []);
 
   useEffect(() => {
@@ -492,25 +501,41 @@ export default function Home() {
     }
   }
 
-  async function handleAwsLogin() {
-    setAwsLoginState("loading");
+  async function signInTo(provider) {
+    const response = await fetch(`${API_BASE}/api/${provider}/session`, {
+      method: "POST",
+      credentials: "include",
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `${provider} sign-in failed.`);
+    }
+    return payload;
+  }
+
+  // Both providers federate to the same Azure AD, so the second browser step is usually
+  // silent. They stay separate calls because only AWS is required to use the app.
+  async function handleSignIn() {
+    try {
+      setSignInState("aws");
+      const aws = await signInTo("aws");
+      setAwsSession(aws);
+      pushOk(`AWS SSO connected (${aws.profile}).`);
+    } catch (err) {
+      pushError(err.message);
+      setSignInState("idle");
+      return;
+    }
 
     try {
-      const response = await fetch(`${API_BASE}/api/aws/session`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "AWS SSO sign-in failed.");
-      }
-
-      setAwsSession(payload);
-      pushOk(`AWS SSO connected (${payload.profile}).`);
+      setSignInState("demohub");
+      const demohub = await signInTo("demohub");
+      setDemohubSession(demohub);
+      pushOk(`DemoHub connected (${demohub.user}).`);
     } catch (err) {
       pushError(err.message);
     } finally {
-      setAwsLoginState("idle");
+      setSignInState("idle");
     }
   }
 
@@ -1140,21 +1165,30 @@ export default function Home() {
                   {awsSession?.signedIn ? "AWS Ready" : "AWS Sign-in Needed"}
                 </span>{" "}
                 {awsSession?.profile || "AWS_PROFILE not set"}
-                {awsSession?.expiration
-                  ? ` • expires ${new Date(awsSession.expiration).toLocaleString(undefined, {
-                      timeZoneName: "short",
-                    })}`
-                  : ""}
+                {awsSession?.expiration ? ` • expires ${formatExpiry(awsSession.expiration)}` : ""}
+                <div className="status">
+                  <span className={`pill ${demohubSession?.signedIn ? "ok" : "warn"}`}>
+                    {demohubSession?.signedIn ? "DemoHub Ready" : "DemoHub Sign-in Needed"}
+                  </span>{" "}
+                  {demohubSession?.signedIn
+                    ? demohubSession.user
+                    : "Tenant lookup falls back to a full table scan"}
+                  {demohubSession?.expiration
+                    ? ` • expires ${formatExpiry(demohubSession.expiration)}`
+                    : ""}
+                </div>
                 <div className="button-row">
                   <button
                     className="secondary"
                     type="button"
-                    onClick={handleAwsLogin}
-                    disabled={awsLoginState === "loading"}
+                    onClick={handleSignIn}
+                    disabled={signInState !== "idle"}
                   >
-                    {awsLoginState === "loading"
-                      ? "Waiting for browser..."
-                      : "Sign in with AWS SSO"}
+                    {signInState === "aws"
+                      ? "Waiting for AWS browser..."
+                      : signInState === "demohub"
+                      ? "Waiting for DemoHub browser..."
+                      : "Sign In (AWS + DemoHub)"}
                   </button>
                 </div>
               </div>

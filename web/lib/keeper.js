@@ -10,6 +10,7 @@ const {
   GetSecretValueCommand,
 } = require("@aws-sdk/client-secrets-manager");
 const { unmarshall } = require("@aws-sdk/util-dynamodb");
+const { findReservation } = require("./demohub");
 
 const defaultRegion = "us-east-1";
 
@@ -56,9 +57,12 @@ function ensureAuthToken() {
   }
 }
 
+function isProductionEnvironment(environment) {
+  return (environment || process.env.ENVIRONMENT || "production") === "production";
+}
+
 function getTableName(environment) {
-  const env = environment || process.env.ENVIRONMENT || "production";
-  return `DemoHub-Reservations-${env === "production" ? "prod" : "dev"}`;
+  return `DemoHub-Reservations-${isProductionEnvironment(environment) ? "prod" : "dev"}`;
 }
 
 async function getInstancePasswords(credentials) {
@@ -393,6 +397,18 @@ async function updateDynamoDBRecord(guid, environment, credentials) {
 
 async function queryTenant(targetName, environment, credentials) {
   const tableName = getTableName(environment);
+
+  // The DemoHub API resolves the name server-side, which the table cannot do without an
+  // index on `name`. It only serves production, and any miss falls through to the scan.
+  if (isProductionEnvironment(environment)) {
+    try {
+      const reservation = await findReservation(targetName);
+      if (reservation) return reservation;
+    } catch (error) {
+      console.warn("DemoHub lookup failed, scanning DynamoDB instead", error?.message || error);
+    }
+  }
+
   const dynamoDBClient = buildDynamoDbClient(credentials);
 
   const params = {
