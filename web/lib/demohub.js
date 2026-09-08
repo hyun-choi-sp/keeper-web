@@ -16,6 +16,9 @@ const redirectUri = `http://localhost:${callbackPort}/`;
 const loginTimeoutMs = 3 * 60 * 1000;
 const requestTimeoutMs = 30 * 1000;
 const refreshSkewMs = 60 * 1000;
+// Matches the app client's RefreshTokenValidity. The hour-long id token renews silently, so
+// this is what actually decides when the browser is needed again.
+const refreshTokenMs = 30 * 24 * 60 * 60 * 1000;
 
 // ponytail: tokens live in this process only, so a restart costs one (usually silent)
 // click. Persisting the 30-day refresh token would need mode 0600 and a gitignore entry.
@@ -120,14 +123,17 @@ async function postToken(form) {
   return response.data;
 }
 
-function storeTokens(tokens, fallbackRefreshToken) {
+function storeTokens(tokens, previous) {
   const claims = decodeClaims(tokens.id_token);
   session = {
     idToken: tokens.id_token,
-    refreshToken: tokens.refresh_token || fallbackRefreshToken || null,
+    // Cognito does not return a new refresh token when refreshing, so carry the original
+    // one and the horizon it started.
+    refreshToken: tokens.refresh_token || previous?.refreshToken || null,
     role: pickRole(claims),
     user: claims.email || claims["cognito:username"] || null,
     expiresAt: claims.exp ? claims.exp * 1000 : Date.now() + 55 * 60 * 1000,
+    sessionExpiresAt: previous?.sessionExpiresAt || Date.now() + refreshTokenMs,
   };
 
   return session;
@@ -161,25 +167,30 @@ async function getIdToken() {
     return null;
   }
 
+  const previous = session;
   try {
     const tokens = await postToken({
       grant_type: "refresh_token",
       client_id: clientId,
-      refresh_token: session.refreshToken,
+      refresh_token: previous.refreshToken,
     });
-    return storeTokens(tokens, session.refreshToken).idToken;
+    return storeTokens(tokens, previous).idToken;
   } catch (error) {
     session = null;
     return null;
   }
 }
 
-function sessionState() {
+// Reports whether the session is still usable, refreshing first if the id token has aged
+// out, so the UI never claims to be signed in with a session that would fail on first use.
+async function sessionState() {
+  const idToken = await getIdToken();
+
   return {
-    signedIn: Boolean(session),
+    signedIn: Boolean(idToken),
     user: session?.user || null,
     role: session?.role || null,
-    expiration: session ? new Date(session.expiresAt).toISOString() : null,
+    expiration: session ? new Date(session.sessionExpiresAt).toISOString() : null,
   };
 }
 
@@ -224,4 +235,5 @@ module.exports = {
   normalizeReservation,
   authorizeUrl,
   redirectUri,
+  storeTokens,
 };

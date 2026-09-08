@@ -8,6 +8,8 @@ const {
   normalizeReservation,
   authorizeUrl,
   redirectUri,
+  storeTokens,
+  sessionState,
 } = require("../lib/demohub");
 
 // PKCE: the challenge must be the S256 digest of the verifier (RFC 7636 test vector).
@@ -61,4 +63,45 @@ const reservations = [{ name: "company23118-poc" }, { name: "company231" }];
 assert.strictEqual(exactMatch(reservations, "company231").name, "company231");
 assert.strictEqual(exactMatch(reservations, "company2311"), undefined);
 
-console.log("OK  demohub helpers");
+// A refresh must not shorten the session: Cognito returns no new refresh token, so the
+// original one and the 30-day horizon have to survive, and the reported expiry is that
+// horizon rather than the hour-long id token.
+const fakeIdToken = (claims) =>
+  `header.${Buffer.from(JSON.stringify(claims))
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "")}.signature`;
+const anHourOut = Math.floor(Date.now() / 1000) + 3600;
+
+const first = storeTokens({
+  id_token: fakeIdToken({ exp: anHourOut, email: "someone@example.com" }),
+  refresh_token: "refresh-token-1",
+});
+assert.ok(
+  first.sessionExpiresAt - Date.now() > 29 * 24 * 60 * 60 * 1000,
+  "a fresh sign-in should report the 30-day refresh token, not the id token"
+);
+
+// A session that started 25 days ago must keep its own horizon, not gain a new 30 days.
+const started25DaysAgo = {
+  refreshToken: "refresh-token-1",
+  sessionExpiresAt: Date.now() + 5 * 24 * 60 * 60 * 1000,
+};
+const afterRefresh = storeTokens(
+  { id_token: fakeIdToken({ exp: anHourOut + 3600, email: "someone@example.com" }) },
+  started25DaysAgo
+);
+
+assert.strictEqual(afterRefresh.refreshToken, "refresh-token-1", "refresh token was dropped");
+assert.strictEqual(
+  afterRefresh.sessionExpiresAt,
+  started25DaysAgo.sessionExpiresAt,
+  "refreshing must not move the session horizon"
+);
+
+sessionState().then((state) => {
+  assert.strictEqual(state.signedIn, true);
+  assert.strictEqual(state.expiration, new Date(started25DaysAgo.sessionExpiresAt).toISOString());
+  console.log("OK  demohub helpers");
+});

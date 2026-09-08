@@ -3,7 +3,7 @@ const { signIn, sessionState } = require("../../../lib/demohub");
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
-    return res.json(sessionState());
+    return res.json(await sessionState());
   }
 
   if (req.method !== "POST") {
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     ensureAuthToken();
 
     await signIn();
-    res.json(sessionState());
+    res.json(await sessionState());
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
