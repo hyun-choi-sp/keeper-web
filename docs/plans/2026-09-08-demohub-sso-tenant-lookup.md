@@ -1,6 +1,9 @@
 # DemoHub SSO Sign-in and One-Call Tenant Lookup — Implementation Plan
 
-**Status:** Proposed 2026-09-08. Not implemented. Awaiting approval.
+**Status:** Implemented 2026-09-08. Stage 2 matched DynamoDB exactly and the lookup dropped
+from minutes to about 3 seconds. Two things changed after this was written: the session is
+also cached on disk (ADR-007 supersedes ADR-003), and the preview route needed the AWS client
+reuse and fan-out that followed.
 
 **Goal:** Resolve a tenant name to its reservation in a single HTTP call by signing in to
 DemoHub from the Keeper UI, so Load Tenant stops walking the 117 MB

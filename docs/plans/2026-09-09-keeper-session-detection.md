@@ -1,6 +1,8 @@
 # Detect an Existing Keeper Session — Implementation Plan
 
-**Status:** Proposed 2026-09-09. Small, scoped change; planning depth kept proportional.
+**Status:** Implemented 2026-09-09. Stage 3 confirmed by the user: a refresh no longer asks
+for the password, Edit Credentials cancels cleanly, and Logout returns to the form. This also
+settles the plan's main risk — the instance does honour token-only re-authentication.
 
 **Goal:** Stop asking for the Keeper password when a valid session is already there. On page
 load the app should recognise the existing token, show "Signed in as ...", and leave the

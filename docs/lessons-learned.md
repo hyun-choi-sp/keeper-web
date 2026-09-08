@@ -106,6 +106,22 @@ again before making the API the source for any new field.
 Observed on one `PROVISIONED` reservation queried with `?status=PROVISIONED`; worth
 confirming on a `DEPROVISIONING` one before acting on it.
 
+## Keeper Has No SSO, but a Token Alone Re-authenticates
+
+**Date:** 2026-09-09
+**Context:** Trying to give Keeper the same "already signed in" treatment as AWS and DemoHub.
+**What happened:** The instance answers 404 on `/api/ext/saml/callback` and
+`/api/ext/openid/callback`, and its login page mentions no SSO at all, so it is
+username/password only. But Guacamole's `POST /api/tokens` accepts a `token` parameter with
+no credentials and re-authenticates that session, returning the username and refreshing the
+session's activity clock. Confirmed in use: a page refresh no longer asks for the password.
+**Root cause:** The token already lived in an HttpOnly cookie that outlives a server restart;
+only the UI's local state forgot about it.
+**Fix / Prevention:** `/api/config` re-authenticates the cookie and reports `signedIn`. The
+password is never stored — an expired session still costs one password entry, by design.
+**Watch out for:** Re-authentication may return a *different* token, so the response has to
+win over the cookie. Enabling SSO here would be a change on the KCM server, not in this app.
+
 ## AWS Credentials Never Needed Pasting
 
 **Date:** 2026-09-08
